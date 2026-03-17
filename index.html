@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>世界迷雾 Web Demo - 增强版</title>
+<title>世界迷雾 Web Demo - 移动端修复版</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
 body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;}
@@ -62,7 +62,7 @@ button:active{transform:scale(0.95);}
     const STORAGE_KEY = 'fog_of_world_data_v2';
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]];
     let fogPoly, exploredPoly, fogLayer, exploredLayer;
-    let historyStack = []; // 存储历史操作用于撤销
+    let historyStack = []; 
     let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline;
     let brushRadiusKm = 0.05; 
 
@@ -70,10 +70,11 @@ button:active{transform:scale(0.95);}
         if(fogLayer) map.removeLayer(fogLayer);
         if(exploredLayer) map.removeLayer(exploredLayer);
         
-        if(isEditMode) { // 探索模式：显示全部地图，足迹标绿
+        if(isEditMode) { 
             if(exploredPoly) exploredLayer = L.geoJSON(exploredPoly, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'transparent',weight:0}, interactive:false}).addTo(map);
-        } else { // 迷雾模式：显示黑色迷雾
-            if(fogPoly) fogLayer = L.geoJSON(fogPoly, {style:{fillColor:'#000',fillOpacity:0.85,color:'transparent',weight:0}, interactive:false}).addTo(map);
+        } else { 
+            // 【调整迷雾透明度】从 0.85 调整为 0.65，让底图透出来
+            if(fogPoly) fogLayer = L.geoJSON(fogPoly, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map);
         }
     }
 
@@ -82,7 +83,6 @@ button:active{transform:scale(0.95);}
     function initData() {
         try { fogPoly = JSON.parse(localStorage.getItem(STORAGE_KEY)) || turf.polygon(worldCoords); } 
         catch(e) { fogPoly = turf.polygon(worldCoords); }
-        // 根据迷雾反推出已经探索过的绿色多边形区域
         try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(e) { exploredPoly = null; }
         renderLayers();
     }
@@ -106,7 +106,7 @@ button:active{transform:scale(0.95);}
         toggleBtn.className = isEditMode ? 'active' : '';
         document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动屏幕标记绿色足迹' : '状态：拖拽浏览地图 (迷雾模式)';
         isEditMode ? map.dragging.disable() : map.dragging.enable();
-        renderLayers(); // 切换图层显示模式
+        renderLayers(); 
         updateCursor();
     };
 
@@ -128,7 +128,7 @@ button:active{transform:scale(0.95);}
         };
     });
 
-    // 4. 定位与绘图逻辑
+    // 4. 定位与绘图逻辑 (重构了移动端触摸支持)
     function locateMe() {
         if(navigator.geolocation) {
             document.getElementById('statusHint').textContent = '定位中...';
@@ -141,40 +141,55 @@ button:active{transform:scale(0.95);}
     document.getElementById('locateBtn').onclick = locateMe;
     setTimeout(locateMe, 500);
 
-    map.on('mousedown touchstart', (e) => {
+    // 核心绘图函数
+    function startDraw(latlng) {
         if(!isEditMode) return;
         isDrawing = true;
-        let latlng = e.latlng || map.mouseEventToLatLng(e.originalEvent.touches[0]);
         currentPath = [[latlng.lng, latlng.lat]]; 
         let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
         tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map);
-    });
-
-    map.on('mousemove touchmove', (e) => {
+    }
+    function moveDraw(latlng) {
         if(!isEditMode || !isDrawing) return;
-        let latlng = e.latlng || map.mouseEventToLatLng(e.originalEvent.touches[0]);
         currentPath.push([latlng.lng, latlng.lat]);
         tempPolyline.addLatLng(latlng);
-    });
-
-    map.on('mouseup touchend', () => {
+    }
+    function endDraw() {
         if(!isEditMode || !isDrawing) return;
         isDrawing = false;
         map.removeLayer(tempPolyline);
         if(currentPath.length < 2) updateFog(turf.buffer(turf.point(currentPath[0]), brushRadiusKm, {units: 'kilometers'}));
         else updateFog(turf.buffer(turf.lineString(currentPath), brushRadiusKm, {units: 'kilometers'}));
-    });
+    }
+
+    // 电脑端鼠标事件绑定
+    map.on('mousedown', (e) => startDraw(e.latlng));
+    map.on('mousemove', (e) => moveDraw(e.latlng));
+    map.on('mouseup', endDraw);
+
+    // 【核心修复】手机端原生触摸事件绑定，并阻止默认行为
+    const mapContainer = map.getContainer();
+    mapContainer.addEventListener('touchstart', (e) => {
+        if(!isEditMode) return;
+        if(e.touches.length === 1) startDraw(map.mouseEventToLatLng(e.touches[0]));
+    }, {passive: false});
+    
+    mapContainer.addEventListener('touchmove', (e) => {
+        if(!isEditMode || !isDrawing) return;
+        e.preventDefault(); // 强行拦截浏览器的滑动返回/刷新手势！
+        if(e.touches.length === 1) moveDraw(map.mouseEventToLatLng(e.touches[0]));
+    }, {passive: false});
+    
+    mapContainer.addEventListener('touchend', endDraw);
 
     function updateFog(maskPolygon) {
         try {
             let newFog = turf.difference(fogPoly, maskPolygon);
             if(newFog) { 
-                // 保存到撤销栈
                 historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null });
-                if(historyStack.length > 30) historyStack.shift(); // 最多保存30步操作
+                if(historyStack.length > 30) historyStack.shift(); 
                 
                 fogPoly = newFog; 
-                // 同步增加绿色足迹区域
                 exploredPoly = exploredPoly ? turf.union(exploredPoly, maskPolygon) : maskPolygon;
                 renderLayers(); saveToLocal(); 
             }
