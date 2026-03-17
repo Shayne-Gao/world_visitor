@@ -2,87 +2,108 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>世界迷雾 Web Demo - 移动端修复版</title>
+<title>世界迷雾 Web Demo - 体验优化版</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;}
+body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;}
 #map{width:100%;height:100%;background:#000; touch-action:none;}
-#controls{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(255,255,255,0.95);padding:10px 15px;border-radius:15px;box-shadow:0 8px 20px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:8px;backdrop-filter:blur(10px);width:90%;max-width:380px;}
-.row{display:flex;gap:8px;align-items:center;width:100%;justify-content:center;flex-wrap:wrap;}
-button{padding:8px 12px;border:none;border-radius:10px;background:#28a745;color:white;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap;}
-button:active{transform:scale(0.95);}
-#toggleEdit{background:#007bff;font-size:14px;flex-grow:1;padding:10px;}
-#toggleEdit.active{background:#dc3545;}
-.btn-secondary{background:#6c757d;} .btn-danger{background:#dc3545;} .btn-warning{background:#ffc107;color:#000;}
-.brush-btn{background:#e2e3e5;color:#333;padding:6px 10px;} .brush-btn.active{background:#ffc107;color:#000;}
-.hint{font-size:12px;color:#444;font-weight:bold;text-align:center;}
+
+/* UI 基础样式与阴影 */
+.btn-shadow { box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); }
+button { border: none; cursor: pointer; outline: none; transition: all 0.15s ease; display:flex; justify-content:center; align-items:center; }
+button:active { transform: scale(0.92); }
+.hidden { display: none !important; }
+
+/* 顶部中间状态提示 (重新居中并与右侧按钮视觉对齐) */
+#statusHint { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.55); backdrop-filter: blur(4px); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; pointer-events: none; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+
+/* 右上角：设置菜单 */
+#topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1000; display: flex; align-items: center; }
+.menu-group { position: relative; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; }
+#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
+.sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
+.sub-btn i { font-size: 14px; }
+.sub-btn.danger { background: #ffebee; color: #dc3545; }
+
+/* 左下角：极弱化的版本号水印 */
+#versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+
+/* 右侧停靠栏 */
+#rightSideTools { position: absolute; bottom: 90px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+#markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+#baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.brush-group { background: rgba(255,255,255,0.95); border-radius: 25px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.brush-btn { width: 34px; height: 34px; border-radius: 50%; background: transparent; font-size: 12px; font-weight: bold; color: #666; }
+.brush-btn.active { background: #28a745; color: white; }
+.undo-btn { background: #ffc107; color: #000; font-size: 18px; }
+
+/* 底部主控按钮 */
+#mainToggle { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #007bff; color: white; font-size: 16px; font-weight: bold; padding: 14px 32px; border-radius: 30px; white-space: nowrap; letter-spacing: 1px; gap: 8px; }
+#mainToggle.active { background: #dc3545; }
 </style>
 </head>
 <body>
+
 <div id="map"></div>
-<div id="controls">
-    <div class="hint" id="statusHint">状态：拖拽浏览地图 (迷雾模式)</div>
-    <div class="row">
-        <button id="toggleEdit">开启标记足迹</button>
-        <button id="undoBtn" class="btn-warning">↩ 撤销</button>
-    </div>
-    <div class="row">
-        <button id="locateBtn" class="btn-secondary">📍 定位</button>
-        <button id="toggleMapBtn" class="btn-secondary">切换地图/卫星</button>
-        <span style="font-size:12px;font-weight:bold;color:#555;">笔刷:</span>
-        <button class="brush-btn" data-size="0.02">小</button>
-        <button class="brush-btn active" data-size="0.05">中</button>
-        <button class="brush-btn" data-size="0.1">大</button>
-    </div>
-    <div class="row" style="border-top:1px solid #eee;padding-top:8px;">
-        <button id="exportBtn" class="btn-secondary">导出</button>
-        <button id="importBtn" class="btn-secondary">导入</button>
-        <button id="resetFog" class="btn-danger">重置</button>
-        <input type="file" id="importFile" accept=".json" style="display:none;">
+<div id="versionTag">v0.0.6</div>
+<div id="statusHint">浏览模式 (迷雾)</div>
+
+<div id="topRightArea">
+    <div class="menu-group">
+        <button id="menuBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-gear"></i></button>
+        <div id="subMenu" class="btn-shadow hidden">
+            <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出</button>
+            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 导入</button>
+            <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置</button>
+            <input type="file" id="importFile" accept=".json" style="display:none;">
+        </div>
     </div>
 </div>
+
+<div id="rightSideTools">
+    <div id="markTools" class="hidden">
+        <button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button>
+        <div class="brush-group btn-shadow">
+            <button class="brush-btn" data-size="0.02">小</button>
+            <button class="brush-btn active" data-size="0.05">中</button>
+            <button class="brush-btn" data-size="0.1">大</button>
+        </div>
+    </div>
+    <div id="baseTools">
+        <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
+        <button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button>
+    </div>
+</div>
+
+<button id="mainToggle" class="btn-shadow"><i class="fa-solid fa-pen-nib"></i> 开启标记足迹</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script>
-    // 1. 初始化地图及双图层
     const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
     const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:18});
     const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18});
-    let currentMapLayer = satelliteLayer;
-    currentMapLayer.addTo(map);
+    let currentMapLayer = satelliteLayer; currentMapLayer.addTo(map);
 
-    document.getElementById('toggleMapBtn').onclick = () => {
-        map.removeLayer(currentMapLayer);
-        currentMapLayer = currentMapLayer === satelliteLayer ? streetLayer : satelliteLayer;
-        currentMapLayer.addTo(map);
-    };
+    document.getElementById('toggleMapBtn').onclick = () => { map.removeLayer(currentMapLayer); currentMapLayer = currentMapLayer === satelliteLayer ? streetLayer : satelliteLayer; currentMapLayer.addTo(map); };
+    document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
 
-    // 2. 存储、数据初始化与撤销栈
     const STORAGE_KEY = 'fog_of_world_data_v2';
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]];
-    let fogPoly, exploredPoly, fogLayer, exploredLayer;
-    let historyStack = []; 
-    let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline;
-    let brushRadiusKm = 0.05; 
+    let fogPoly, exploredPoly, fogLayer, exploredLayer, historyStack = []; 
+    let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.05; 
 
     function renderLayers() {
-        if(fogLayer) map.removeLayer(fogLayer);
-        if(exploredLayer) map.removeLayer(exploredLayer);
-        
-        if(isEditMode) { 
-            if(exploredPoly) exploredLayer = L.geoJSON(exploredPoly, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'transparent',weight:0}, interactive:false}).addTo(map);
-        } else { 
-            // 【调整迷雾透明度】从 0.85 调整为 0.65，让底图透出来
-            if(fogPoly) fogLayer = L.geoJSON(fogPoly, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map);
-        }
+        if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
+        if(isEditMode) { if(exploredPoly) exploredLayer = L.geoJSON(exploredPoly, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'transparent',weight:0}, interactive:false}).addTo(map); } 
+        else { if(fogPoly) fogLayer = L.geoJSON(fogPoly, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); }
     }
 
     function saveToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(fogPoly)); }
-    
     function initData() {
-        try { fogPoly = JSON.parse(localStorage.getItem(STORAGE_KEY)) || turf.polygon(worldCoords); } 
-        catch(e) { fogPoly = turf.polygon(worldCoords); }
+        try { fogPoly = JSON.parse(localStorage.getItem(STORAGE_KEY)) || turf.polygon(worldCoords); } catch(e) { fogPoly = turf.polygon(worldCoords); }
         try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(e) { exploredPoly = null; }
         renderLayers();
     }
@@ -90,110 +111,73 @@ button:active{transform:scale(0.95);}
 
     function updateCursor() {
         if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; }
-        let centerLat = map.getCenter().lat;
-        let metersPerPixel = 40075016 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
-        let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / metersPerPixel, 300));
+        let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300));
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`;
         document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`;
     }
     map.on('zoomend moveend', updateCursor);
 
-    // 3. 状态管理与撤销
-    const toggleBtn = document.getElementById('toggleEdit');
-    toggleBtn.onclick = () => {
+    const mainToggle = document.getElementById('mainToggle');
+    const markTools = document.getElementById('markTools');
+    mainToggle.onclick = () => {
         isEditMode = !isEditMode;
-        toggleBtn.textContent = isEditMode ? '停止标记 (恢复迷雾)' : '开启标记足迹';
-        toggleBtn.className = isEditMode ? 'active' : '';
-        document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动屏幕标记绿色足迹' : '状态：拖拽浏览地图 (迷雾模式)';
+        mainToggle.innerHTML = isEditMode ? '<i class="fa-solid fa-eye"></i> 停止标记 (恢复迷雾)' : '<i class="fa-solid fa-pen-nib"></i> 开启标记足迹';
+        mainToggle.className = isEditMode ? 'btn-shadow active' : 'btn-shadow';
+        document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
+        isEditMode ? markTools.classList.remove('hidden') : markTools.classList.add('hidden');
         isEditMode ? map.dragging.disable() : map.dragging.enable();
-        renderLayers(); 
-        updateCursor();
+        document.getElementById('subMenu').classList.add('hidden'); 
+        renderLayers(); updateCursor();
     };
 
     document.getElementById('undoBtn').onclick = () => {
-        if(!isEditMode) { alert("请在【标记足迹】模式下使用撤销功能"); return; }
-        if(historyStack.length === 0) { alert("没有可以撤销的步骤了"); return; }
-        let state = historyStack.pop();
-        fogPoly = JSON.parse(state.fog);
-        exploredPoly = state.explored ? JSON.parse(state.explored) : null;
+        if(historyStack.length === 0) return alert("没有可以撤销的步骤了");
+        let state = historyStack.pop(); fogPoly = JSON.parse(state.fog); exploredPoly = state.explored ? JSON.parse(state.explored) : null;
         renderLayers(); saveToLocal();
     };
 
     document.querySelectorAll('.brush-btn').forEach(btn => {
         btn.onclick = (e) => {
             document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            brushRadiusKm = parseFloat(e.target.getAttribute('data-size'));
-            updateCursor();
+            e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor();
         };
     });
 
-    // 4. 定位与绘图逻辑 (重构了移动端触摸支持)
-function locateMe() {
+    function locateMe() {
         if(navigator.geolocation) {
             document.getElementById('statusHint').textContent = '定位中...';
-            // 增加了 enableHighAccuracy 和 timeout 设置
             navigator.geolocation.getCurrentPosition(pos => {
-                map.flyTo([pos.coords.latitude, pos.coords.longitude], 16);
-                document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动屏幕标记绿色足迹' : '状态：拖拽浏览地图 (迷雾模式)';
+                let lat = pos.coords.latitude, lng = pos.coords.longitude;
+                map.flyTo([lat, lng], 16);
+                document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
+                updateFog(turf.buffer(turf.point([lng, lat]), brushRadiusKm, {units: 'kilometers'}));
             }, (err) => { 
-                // 捕获具体的错误原因
-                let errorMsg = "定位失败\n";
-                if(err.code === 1) errorMsg += "原因: 浏览器或系统拒绝了权限 (PERMISSION_DENIED)";
-                if(err.code === 2) errorMsg += "原因: 位置信息不可用 (POSITION_UNAVAILABLE) - 通常是因为连不上谷歌网络定位服务";
-                if(err.code === 3) errorMsg += "原因: 请求超时 (TIMEOUT)";
-                alert(errorMsg + "\n系统提示: " + err.message);
-                document.getElementById('statusHint').textContent = '定位失败';
-            }, {
-                enableHighAccuracy: true, // 强制尝试使用 GPS 硬件
-                timeout: 10000,           // 10秒超时限制
-                maximumAge: 0
-            });
+                let msg = "定位失败\n";
+                if(err.code===1) msg+="原因: 浏览器或系统拒绝了权限";
+                else if(err.code===2) msg+="原因: 位置信息不可用(网络定位服务连接失败)";
+                else if(err.code===3) msg+="原因: 请求超时";
+                alert(msg + "\n" + err.message); document.getElementById('statusHint').textContent = '定位失败';
+            }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
-    document.getElementById('locateBtn').onclick = locateMe;
-    setTimeout(locateMe, 500);
+    document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
 
-    // 核心绘图函数
     function startDraw(latlng) {
-        if(!isEditMode) return;
-        isDrawing = true;
-        currentPath = [[latlng.lng, latlng.lat]]; 
+        if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; 
         let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
         tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map);
     }
-    function moveDraw(latlng) {
-        if(!isEditMode || !isDrawing) return;
-        currentPath.push([latlng.lng, latlng.lat]);
-        tempPolyline.addLatLng(latlng);
-    }
+    function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
     function endDraw() {
-        if(!isEditMode || !isDrawing) return;
-        isDrawing = false;
-        map.removeLayer(tempPolyline);
+        if(!isEditMode || !isDrawing) return; isDrawing = false; map.removeLayer(tempPolyline);
         if(currentPath.length < 2) updateFog(turf.buffer(turf.point(currentPath[0]), brushRadiusKm, {units: 'kilometers'}));
         else updateFog(turf.buffer(turf.lineString(currentPath), brushRadiusKm, {units: 'kilometers'}));
     }
-
-    // 电脑端鼠标事件绑定
-    map.on('mousedown', (e) => startDraw(e.latlng));
-    map.on('mousemove', (e) => moveDraw(e.latlng));
-    map.on('mouseup', endDraw);
-
-    // 【核心修复】手机端原生触摸事件绑定，并阻止默认行为
-    const mapContainer = map.getContainer();
-    mapContainer.addEventListener('touchstart', (e) => {
-        if(!isEditMode) return;
-        if(e.touches.length === 1) startDraw(map.mouseEventToLatLng(e.touches[0]));
-    }, {passive: false});
-    
-    mapContainer.addEventListener('touchmove', (e) => {
-        if(!isEditMode || !isDrawing) return;
-        e.preventDefault(); // 强行拦截浏览器的滑动返回/刷新手势！
-        if(e.touches.length === 1) moveDraw(map.mouseEventToLatLng(e.touches[0]));
-    }, {passive: false});
-    
-    mapContainer.addEventListener('touchend', endDraw);
+    map.on('mousedown', (e) => startDraw(e.latlng)); map.on('mousemove', (e) => moveDraw(e.latlng)); map.on('mouseup', endDraw);
+    const mc = map.getContainer();
+    mc.addEventListener('touchstart', (e) => { if(!isEditMode) return; if(e.touches.length===1) startDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
+    mc.addEventListener('touchmove', (e) => { if(!isEditMode || !isDrawing) return; e.preventDefault(); if(e.touches.length===1) moveDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
+    mc.addEventListener('touchend', endDraw);
 
     function updateFog(maskPolygon) {
         try {
@@ -201,38 +185,28 @@ function locateMe() {
             if(newFog) { 
                 historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null });
                 if(historyStack.length > 30) historyStack.shift(); 
-                
-                fogPoly = newFog; 
-                exploredPoly = exploredPoly ? turf.union(exploredPoly, maskPolygon) : maskPolygon;
+                fogPoly = newFog; exploredPoly = exploredPoly ? turf.union(exploredPoly, maskPolygon) : maskPolygon;
                 renderLayers(); saveToLocal(); 
             }
         } catch(err) { console.error("路径可能自相交", err); }
     }
 
-    // 5. 导入/导出/重置
     document.getElementById('resetFog').onclick = () => {
-        if(confirm("确定清除所有记录吗？")) { 
-            historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null });
-            fogPoly = turf.polygon(worldCoords); exploredPoly = null; renderLayers(); saveToLocal(); 
-        }
+        if(confirm("确定清除所有记录吗？")) { historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null }); fogPoly = turf.polygon(worldCoords); exploredPoly = null; renderLayers(); saveToLocal(); document.getElementById('subMenu').classList.add('hidden'); }
     };
-    document.getElementById('exportBtn').onclick = () => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(fogPoly)], {type:"application/json"}));
-        a.download = `Fog_Save_${Date.now()}.json`; a.click();
+    document.getElementById('exportBtn').onclick = () => { 
+        const a = document.createElement('a'); 
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(fogPoly)], {type:"application/json"})); 
+        const d = new Date(), p = n => n.toString().padStart(2, '0');
+        a.download = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`; 
+        a.click(); 
+        document.getElementById('subMenu').classList.add('hidden'); 
     };
     document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
     document.getElementById('importFile').onchange = (e) => {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            try { 
-                fogPoly = JSON.parse(evt.target.result); 
-                try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(err) { exploredPoly = null; }
-                historyStack = []; renderLayers(); saveToLocal(); alert("导入成功！"); 
-            } catch(err) { alert("文件格式错误！"); }
-        };
-        if(e.target.files[0]) reader.readAsText(e.target.files[0]);
-        e.target.value = '';
+        const r = new FileReader(); r.onload = (evt) => {
+            try { fogPoly = JSON.parse(evt.target.result); try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(err) { exploredPoly = null; } historyStack = []; renderLayers(); saveToLocal(); alert("导入成功！"); } catch(err) { alert("文件格式错误！"); }
+        }; if(e.target.files[0]) r.readAsText(e.target.files[0]); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
     };
 </script>
 </body>
