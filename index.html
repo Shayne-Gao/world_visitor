@@ -129,13 +129,26 @@ button:active{transform:scale(0.95);}
     });
 
     // 4. 定位与绘图逻辑 (重构了移动端触摸支持)
-    function locateMe() {
+function locateMe() {
         if(navigator.geolocation) {
             document.getElementById('statusHint').textContent = '定位中...';
+            // 增加了 enableHighAccuracy 和 timeout 设置
             navigator.geolocation.getCurrentPosition(pos => {
                 map.flyTo([pos.coords.latitude, pos.coords.longitude], 16);
                 document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动屏幕标记绿色足迹' : '状态：拖拽浏览地图 (迷雾模式)';
-            }, () => { alert('定位失败，请确保授予浏览器定位权限'); });
+            }, (err) => { 
+                // 捕获具体的错误原因
+                let errorMsg = "定位失败\n";
+                if(err.code === 1) errorMsg += "原因: 浏览器或系统拒绝了权限 (PERMISSION_DENIED)";
+                if(err.code === 2) errorMsg += "原因: 位置信息不可用 (POSITION_UNAVAILABLE) - 通常是因为连不上谷歌网络定位服务";
+                if(err.code === 3) errorMsg += "原因: 请求超时 (TIMEOUT)";
+                alert(errorMsg + "\n系统提示: " + err.message);
+                document.getElementById('statusHint').textContent = '定位失败';
+            }, {
+                enableHighAccuracy: true, // 强制尝试使用 GPS 硬件
+                timeout: 10000,           // 10秒超时限制
+                maximumAge: 0
+            });
         } else { alert('当前环境不支持定位'); }
     }
     document.getElementById('locateBtn').onclick = locateMe;
