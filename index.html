@@ -2,35 +2,39 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>世界迷雾 Web Demo - 体验优化版</title>
+<title>世界迷雾 Web Demo - 智能操作版</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;}
 #map{width:100%;height:100%;background:#000; touch-action:none;}
-
-/* UI 基础样式与阴影 */
 .btn-shadow { box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); }
 button { border: none; cursor: pointer; outline: none; transition: all 0.15s ease; display:flex; justify-content:center; align-items:center; }
 button:active { transform: scale(0.92); }
 .hidden { display: none !important; }
 
-/* 顶部中间状态提示 (重新居中并与右侧按钮视觉对齐) */
 #statusHint { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.55); backdrop-filter: blur(4px); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; pointer-events: none; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 
-/* 右上角：设置菜单 */
+#statsPanel { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; }
+#statsHeader { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8f9fa; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px; margin-bottom: 2px; }
+#statsContent { display: flex; flex-direction: column; gap: 8px; overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease; max-height: 250px; opacity: 1; }
+#statsContent.collapsed { max-height: 0; opacity: 0; margin: 0; }
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 75px; }
+.stat-val { font-size: 13px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.stat-val.global { color: #4ade80; }  
+.stat-val.country { color: #60a5fa; } 
+.stat-val.city { color: #c084fc; }    
+.stat-val.district { color: #facc15; }
+
 #topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1000; display: flex; align-items: center; }
 .menu-group { position: relative; }
 .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; }
 #subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
-.sub-btn i { font-size: 14px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
-/* 左下角：极弱化的版本号水印 */
 #versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
-
-/* 右侧停靠栏 */
 #rightSideTools { position: absolute; bottom: 90px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 15px; align-items: center; }
 #markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
@@ -39,7 +43,11 @@ button:active { transform: scale(0.92); }
 .brush-btn.active { background: #28a745; color: white; }
 .undo-btn { background: #ffc107; color: #000; font-size: 18px; }
 
-/* 底部主控按钮 */
+#timelineContainer { position: absolute; bottom: 90px; right: 74px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 10px 15px; border-radius: 15px; width: 240px; display: flex; flex-direction: column; gap: 8px; align-items: center; transform: translateX(100%); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease; pointer-events: none; }
+#timelineContainer.expanded { transform: translateX(0); opacity: 1; pointer-events: auto; }
+#timelineLabel { font-size: 12px; font-weight: bold; color: #444; }
+#timelineSlider { width: 100%; accent-color: #007bff; margin: 0; cursor: pointer; }
+
 #mainToggle { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #007bff; color: white; font-size: 16px; font-weight: bold; padding: 14px 32px; border-radius: 30px; white-space: nowrap; letter-spacing: 1px; gap: 8px; }
 #mainToggle.active { background: #dc3545; }
 </style>
@@ -47,40 +55,47 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.0.6</div>
+<div id="versionTag">v0.1.8</div>
 <div id="statusHint">浏览模式 (迷雾)</div>
+
+<div id="statsPanel" class="btn-shadow">
+    <div id="statsHeader">
+        <span><i class="fa-solid fa-earth-americas"></i> 探索档案</span>
+        <i id="statsToggleBtn" class="fa-solid fa-chevron-up" style="cursor:pointer; padding: 0 4px;"></i>
+    </div>
+    <div id="statsContent">
+        <div class="stat-row"><span class="stat-label">总面积</span><span class="stat-val global" id="statArea">0.000 km²</span></div>
+        <div class="stat-row"><span class="stat-label">全球占比</span><span class="stat-val global" id="statPct">0.000000%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblCountry">国家</span><span class="stat-val country" id="pctCountry">--%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblCity">城市</span><span class="stat-val city" id="pctCity">--%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblDistrict">区</span><span class="stat-val district" id="pctDistrict">--%</span></div>
+    </div>
+</div>
 
 <div id="topRightArea">
     <div class="menu-group">
         <button id="menuBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-gear"></i></button>
         <div id="subMenu" class="btn-shadow hidden">
-            <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出</button>
-            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 导入</button>
-            <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置</button>
-            <input type="file" id="importFile" accept=".json" style="display:none;">
+            <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出存档</button>
+            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 导入存档</button>
+            <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
+            <input type="file" id="importFile" accept=".json,.fogbak,.gz" style="display:none;">
         </div>
     </div>
 </div>
 
 <div id="rightSideTools">
-    <div id="markTools" class="hidden">
-        <button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button>
-        <div class="brush-group btn-shadow">
-            <button class="brush-btn" data-size="0.02">小</button>
-            <button class="brush-btn active" data-size="0.05">中</button>
-            <button class="brush-btn" data-size="0.1">大</button>
-        </div>
-    </div>
-    <div id="baseTools">
-        <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
-        <button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button>
-    </div>
+    <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn" data-size="0.02">小</button><button class="brush-btn active" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
+    <div id="baseTools"><button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button><button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button><button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button><button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button></div>
 </div>
 
+<div id="timelineContainer" class="btn-shadow"><div id="timelineLabel">时光机进度</div><input type="range" id="timelineSlider" min="0" max="0" value="0"></div>
 <button id="mainToggle" class="btn-shadow"><i class="fa-solid fa-pen-nib"></i> 开启标记足迹</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+
 <script>
     const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
     const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:18});
@@ -89,124 +104,206 @@ button:active { transform: scale(0.92); }
 
     document.getElementById('toggleMapBtn').onclick = () => { map.removeLayer(currentMapLayer); currentMapLayer = currentMapLayer === satelliteLayer ? streetLayer : satelliteLayer; currentMapLayer.addTo(map); };
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
+    document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
 
-    const STORAGE_KEY = 'fog_of_world_data_v2';
-    const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]];
-    let fogPoly, exploredPoly, fogLayer, exploredLayer, historyStack = []; 
-    let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.05; 
+    const PolylineUtil = { encode: function(coords) { let res = '', pLat = 0, pLng = 0; for (let p of coords) { let lat = Math.round(p[1]*1e5), lng = Math.round(p[0]*1e5); res += this._enc(lat - pLat) + this._enc(lng - pLng); pLat = lat; pLng = lng; } return res; }, _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } };
+
+    const STORAGE_KEY = 'fog_of_world_data_v5'; const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
+    let appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
+
+    const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
+
+    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.05, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+
+    const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
+    const getTodayPrefix = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+
+    function updateStatsUI() { let area = appData.metadata.totalAreaKm2; document.getElementById('statArea').textContent = area.toFixed(3) + ' km²'; document.getElementById('statPct').textContent = ((area / EARTH_AREA_KM2) * 100).toFixed(8) + '%'; document.getElementById('statPct').title = area.toFixed(3) + ' km²'; }
+    function calcTotalArea() { if(!appData.renderCache.globalExplored) return 0; return turf.area(appData.renderCache.globalExplored) / 1000000; }
+
+    let lastCalcTime = 0;
+    async function checkLocalRegion(lat, lng) {
+        if(Date.now() - lastCalcTime < 6000) return; lastCalcTime = Date.now();
+        if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+        const pt = turf.point([lng, lat]);
+        const lvls = [{z:3, idL:'lblCountry', idP:'pctCountry', n:'国家'}, {z:7, idL:'lblCity', idP:'pctCity', n:'城市'}, {z:10, idL:'lblDistrict', idP:'pctDistrict', n:'区'}];
+        
+        for(let i=0; i<lvls.length; i++) {
+            let lvl = lvls[i]; let target = null, rName = lvl.n + "未知";
+            for(let k in appData.renderCache.regionsCache) {
+                if(k.startsWith(lvl.z + '_')) { let r = appData.renderCache.regionsCache[k]; if(r.geojson && turf.booleanPointInPolygon(pt, r.geojson)) { target = r; rName = k.split('_')[1]; break; } }
+            }
+            if(!target) {
+                document.getElementById(lvl.idL).textContent = '嗅探中..';
+                if(i>0) await new Promise(r => setTimeout(r, 1100));
+                try {
+                    let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${lvl.z}&polygon_geojson=1`); let d = await res.json();
+                    if(d && d.geojson && (d.geojson.type==='Polygon'||d.geojson.type==='MultiPolygon') && d.name) {
+                        rName = d.name; target = { geojson: d.geojson, area: turf.area(d.geojson)/1000000 };
+                        appData.renderCache.regionsCache[`${lvl.z}_${rName}`] = target; DataManager.saveData(appData);
+                    }
+                } catch(e){}
+            }
+            if(target && appData.renderCache.globalExplored) {
+                try { let overlap = turf.intersect(appData.renderCache.globalExplored, target.geojson); let exp = overlap ? turf.area(overlap)/1000000 : 0; document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = ((exp/target.area)*100).toFixed(4) + '%'; document.getElementById(lvl.idP).title = exp.toFixed(3) + ' km²'; } catch(e) { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '算力不足'; }
+            } else if(target) { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '0.0000%'; } else { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '--%'; }
+        }
+    }
 
     function renderLayers() {
         if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
-        if(isEditMode) { if(exploredPoly) exploredLayer = L.geoJSON(exploredPoly, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'transparent',weight:0}, interactive:false}).addTo(map); } 
-        else { if(fogPoly) fogLayer = L.geoJSON(fogPoly, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); }
+        let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
+        if(isEditMode) { 
+            if(viewTodayOnly) { let todayPrefix = getTodayPrefix(), todayPoly = null; for(let k in appData.renderCache.dailyExplored) { if(k.startsWith(todayPrefix)) todayPoly = todayPoly ? turf.union(todayPoly, appData.renderCache.dailyExplored[k]) : appData.renderCache.dailyExplored[k]; }
+                if(todayPoly) exploredLayer = L.geoJSON(todayPoly, {style:{fillColor:'#007bff',fillOpacity:0.65,color:'#007bff',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map);
+            } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
+        } else { 
+            if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
+            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#28a745',weight:compWeight,opacity:0.75}, interactive:false}).addTo(map);
+        }
     }
 
-    function saveToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(fogPoly)); }
-    function initData() {
-        try { fogPoly = JSON.parse(localStorage.getItem(STORAGE_KEY)) || turf.polygon(worldCoords); } catch(e) { fogPoly = turf.polygon(worldCoords); }
-        try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(e) { exploredPoly = null; }
-        renderLayers();
-    }
-    initData();
+    function buildTimeline() { timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); }
+    function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
+    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
 
-    function updateCursor() {
-        if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; }
-        let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300));
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`;
-        document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`;
-    }
-    map.on('zoomend moveend', updateCursor);
+    let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
 
-    const mainToggle = document.getElementById('mainToggle');
-    const markTools = document.getElementById('markTools');
+    const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    async function initData() {
+        let loadedData = await DataManager.loadData();
+        if(loadedData && loadedData.version === "1.0.0") { appData = loadedData; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; } 
+        else if (loadedData && loadedData.fog) { appData.renderCache.globalFog = loadedData.fog; appData.renderCache.dailyExplored = loadedData.daily || {}; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} appData.metadata.totalAreaKm2 = calcTotalArea(); await DataManager.saveData(appData); } 
+        else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
+        
+        // 【关键逻辑】本地启动时，如果迷雾缺失，自动反推生成（服务于精简版导出数据导入）
+        if(!appData.renderCache.globalFog) {
+            appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+        }
+
+        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); if(!isMobile) map.dragging.disable();
+    }
+    localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
+
+    function updateCursor() { if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; } let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; }
+    map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
+
+    const showTodayBtn = document.getElementById('showTodayBtn'); showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; document.getElementById('statusHint').textContent = viewTodayOnly ? '只看今日足迹 (蓝色)' : '滑动标记绿色足迹 (全部)'; renderLayers(); };
+    const mainToggle = document.getElementById('mainToggle'); const markTools = document.getElementById('markTools');
     mainToggle.onclick = () => {
-        isEditMode = !isEditMode;
-        mainToggle.innerHTML = isEditMode ? '<i class="fa-solid fa-eye"></i> 停止标记 (恢复迷雾)' : '<i class="fa-solid fa-pen-nib"></i> 开启标记足迹';
-        mainToggle.className = isEditMode ? 'btn-shadow active' : 'btn-shadow';
-        document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
-        isEditMode ? markTools.classList.remove('hidden') : markTools.classList.add('hidden');
-        isEditMode ? map.dragging.disable() : map.dragging.enable();
-        document.getElementById('subMenu').classList.add('hidden'); 
-        renderLayers(); updateCursor();
+        isEditMode = !isEditMode; mainToggle.innerHTML = isEditMode ? '<i class="fa-solid fa-eye"></i> 停止标记 (恢复迷雾)' : '<i class="fa-solid fa-pen-nib"></i> 开启标记足迹'; mainToggle.className = isEditMode ? 'btn-shadow active' : 'btn-shadow'; document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
+        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
+        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
+        document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
     };
 
-    document.getElementById('undoBtn').onclick = () => {
-        if(historyStack.length === 0) return alert("没有可以撤销的步骤了");
-        let state = historyStack.pop(); fogPoly = JSON.parse(state.fog); exploredPoly = state.explored ? JSON.parse(state.explored) : null;
-        renderLayers(); saveToLocal();
-    };
-
-    document.querySelectorAll('.brush-btn').forEach(btn => {
-        btn.onclick = (e) => {
-            document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor();
-        };
-    });
+    document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
+    document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
 
     function locateMe() {
         if(navigator.geolocation) {
             document.getElementById('statusHint').textContent = '定位中...';
             navigator.geolocation.getCurrentPosition(pos => {
-                let lat = pos.coords.latitude, lng = pos.coords.longitude;
-                map.flyTo([lat, lng], 16);
-                document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
-                updateFog(turf.buffer(turf.point([lng, lat]), brushRadiusKm, {units: 'kilometers'}));
-            }, (err) => { 
-                let msg = "定位失败\n";
-                if(err.code===1) msg+="原因: 浏览器或系统拒绝了权限";
-                else if(err.code===2) msg+="原因: 位置信息不可用(网络定位服务连接失败)";
-                else if(err.code===3) msg+="原因: 请求超时";
-                alert(msg + "\n" + err.message); document.getElementById('statusHint').textContent = '定位失败';
-            }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                let lat = pos.coords.latitude, lng = pos.coords.longitude; map.flyTo([lat, lng], 16);
+                document.getElementById('statusHint').textContent = isEditMode ? (viewTodayOnly ? '只看今日足迹 (蓝色)' : '滑动标记绿色足迹') : '浏览模式 (迷雾)';
+                currentPath = [[lng, lat]]; endDraw(); checkLocalRegion(lat, lng); 
+            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); document.getElementById('statusHint').textContent = '定位失败'; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
     document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
 
-    function startDraw(latlng) {
-        if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; 
-        let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
-        tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map);
-    }
+    function startDraw(latlng) { if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)); tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map); }
     function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
-    function endDraw() {
-        if(!isEditMode || !isDrawing) return; isDrawing = false; map.removeLayer(tempPolyline);
-        if(currentPath.length < 2) updateFog(turf.buffer(turf.point(currentPath[0]), brushRadiusKm, {units: 'kilometers'}));
-        else updateFog(turf.buffer(turf.lineString(currentPath), brushRadiusKm, {units: 'kilometers'}));
+    
+    async function endDraw() {
+        if(!isEditMode || !isDrawing) return; isDrawing = false; if(tempPolyline) map.removeLayer(tempPolyline); if(currentPath.length === 0) return;
+        let simplifiedCoords = currentPath;
+        if(currentPath.length > 2) { let line = turf.simplify(turf.lineString(currentPath), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
+        const trackRecord = { id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), timestamp: Date.now(), source: 'web_draw', brushRadiusKm: brushRadiusKm, encodedPath: PolylineUtil.encode(simplifiedCoords) };
+        let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
+        mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
+        
+        try {
+            let newFog = turf.difference(appData.renderCache.globalFog, mask);
+            if(newFog) { 
+                historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift(); 
+                appData.sourceOfTruth.tracks.push(trackRecord); appData.renderCache.globalFog = newFog; 
+                appData.renderCache.globalExplored = appData.renderCache.globalExplored ? turf.union(appData.renderCache.globalExplored, mask) : mask;
+                let tKey = getTimeKey(); appData.renderCache.dailyExplored[tKey] = appData.renderCache.dailyExplored[tKey] ? turf.union(appData.renderCache.dailyExplored[tKey], mask) : mask;
+                appData.metadata.totalAreaKm2 = calcTotalArea(); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); 
+                checkLocalRegion(simplifiedCoords[simplifiedCoords.length-1][1], simplifiedCoords[simplifiedCoords.length-1][0]);
+            }
+        } catch(err) {}
     }
-    map.on('mousedown', (e) => startDraw(e.latlng)); map.on('mousemove', (e) => moveDraw(e.latlng)); map.on('mouseup', endDraw);
-    const mc = map.getContainer();
+
+    const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); let isRightDragging = false; let lastX, lastY;
+    mc.addEventListener('mousedown', (e) => { if (e.button === 0 && isEditMode) { startDraw(map.mouseEventToLatLng(e)); } else if (e.button === 2) { e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing'; } });
+    mc.addEventListener('mousemove', (e) => { if (isDrawing) { moveDraw(map.mouseEventToLatLng(e)); } else if (isRightDragging) { const dx = e.clientX - lastX; const dy = e.clientY - lastY; map.panBy([-dx, -dy], {animate: false}); lastX = e.clientX; lastY = e.clientY; } });
+    document.addEventListener('mouseup', (e) => { if (e.button === 0 && isDrawing) { endDraw(); } else if (e.button === 2 && isRightDragging) { isRightDragging = false; updateCursor(); } });
     mc.addEventListener('touchstart', (e) => { if(!isEditMode) return; if(e.touches.length===1) startDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
     mc.addEventListener('touchmove', (e) => { if(!isEditMode || !isDrawing) return; e.preventDefault(); if(e.touches.length===1) moveDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
     mc.addEventListener('touchend', endDraw);
 
-    function updateFog(maskPolygon) {
-        try {
-            let newFog = turf.difference(fogPoly, maskPolygon);
-            if(newFog) { 
-                historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null });
-                if(historyStack.length > 30) historyStack.shift(); 
-                fogPoly = newFog; exploredPoly = exploredPoly ? turf.union(exploredPoly, maskPolygon) : maskPolygon;
-                renderLayers(); saveToLocal(); 
-            }
-        } catch(err) { console.error("路径可能自相交", err); }
-    }
-
-    document.getElementById('resetFog').onclick = () => {
-        if(confirm("确定清除所有记录吗？")) { historyStack.push({ fog: JSON.stringify(fogPoly), explored: exploredPoly ? JSON.stringify(exploredPoly) : null }); fogPoly = turf.polygon(worldCoords); exploredPoly = null; renderLayers(); saveToLocal(); document.getElementById('subMenu').classList.add('hidden'); }
-    };
-    document.getElementById('exportBtn').onclick = () => { 
-        const a = document.createElement('a'); 
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(fogPoly)], {type:"application/json"})); 
+    document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
+    
+    // 【核心新增：极速压缩导出】
+    document.getElementById('exportBtn').onclick = async () => { 
+        // 1. 浅拷贝，并丢弃极其庞大的 globalFog
+        let exportData = JSON.parse(JSON.stringify(appData));
+        exportData.renderCache.globalFog = null; 
+        
+        const jsonStr = JSON.stringify(exportData);
         const d = new Date(), p = n => n.toString().padStart(2, '0');
-        a.download = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`; 
-        a.click(); 
+        const filenameBase = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+        
+        try {
+            // 2. 尝试利用浏览器底层 GZIP 极速流压缩
+            const blob = new Blob([jsonStr], {type: "application/json"});
+            const compressedStream = blob.stream().pipeThrough(new CompressionStream("gzip"));
+            const compressedBlob = await new Response(compressedStream).blob();
+            
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(compressedBlob);
+            a.download = filenameBase + '.fogbak';
+            a.click();
+        } catch (err) {
+            // 不支持流压缩的旧环境，优雅降级为传统 JSON 导出
+            const a = document.createElement('a'); 
+            a.href = URL.createObjectURL(new Blob([jsonStr], {type:"application/json"})); 
+            a.download = filenameBase + '.json'; 
+            a.click();
+        }
         document.getElementById('subMenu').classList.add('hidden'); 
     };
+    
+    // 【核心新增：解压导入兼容】
     document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
-    document.getElementById('importFile').onchange = (e) => {
-        const r = new FileReader(); r.onload = (evt) => {
-            try { fogPoly = JSON.parse(evt.target.result); try { exploredPoly = turf.difference(turf.polygon(worldCoords), fogPoly); } catch(err) { exploredPoly = null; } historyStack = []; renderLayers(); saveToLocal(); alert("导入成功！"); } catch(err) { alert("文件格式错误！"); }
-        }; if(e.target.files[0]) r.readAsText(e.target.files[0]); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
+    document.getElementById('importFile').onchange = async (e) => {
+        const file = e.target.files[0]; if(!file) return;
+        try { 
+            let jsonStr;
+            // 自动侦测并原生解压
+            if (file.name.endsWith('.fogbak') || file.name.endsWith('.gz')) {
+                const ds = file.stream().pipeThrough(new DecompressionStream("gzip"));
+                jsonStr = await new Response(ds).text();
+            } else {
+                jsonStr = await file.text();
+            }
+
+            let parsed = JSON.parse(jsonStr); 
+            if(parsed.version === "1.0.0") { 
+                appData = parsed; 
+                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; 
+                // 数据导入后，瞬间把剔除的迷雾补回来
+                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+            } else if(parsed.fog) { 
+                appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
+                try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} appData.metadata.totalAreaKm2 = calcTotalArea(); 
+            } 
+            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); alert("导入成功！"); 
+        } catch(err) { alert("文件格式错误或已损坏！"); console.error(err); }
+        e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
     };
 </script>
 </body>
