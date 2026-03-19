@@ -13,13 +13,12 @@ button { border: none; cursor: pointer; outline: none; transition: all 0.15s eas
 button:active { transform: scale(0.92); }
 .hidden { display: none !important; }
 
-#statusHint { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.55); backdrop-filter: blur(4px); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; pointer-events: none; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+/* 删除了冗余的 statusHint 样式，地图顶部现在极其通透 */
 
-#statsPanel { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; }
+#statsPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; transition: all 0.3s ease; }
 #statsHeader { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8f9fa; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px; margin-bottom: 2px; }
 #statsContent { display: flex; flex-direction: column; gap: 8px; overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease; max-height: 250px; opacity: 1; }
 #statsContent.collapsed { max-height: 0; opacity: 0; margin: 0; }
-/* 【修改点】允许换行，并调整为居中对齐适应多行文本 */
 .stat-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; max-width: 90px; word-break: break-word; line-height: 1.2; }
 .stat-val { font-size: 13px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
@@ -28,9 +27,9 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
-#topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1000; display: flex; align-items: center; }
+#topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
-.icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
 #subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
@@ -51,14 +50,20 @@ button:active { transform: scale(0.92); }
 
 #mainToggle { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #007bff; color: white; font-size: 16px; font-weight: bold; padding: 14px 32px; border-radius: 30px; white-space: nowrap; letter-spacing: 1px; gap: 8px; }
 #mainToggle.active { background: #dc3545; }
+
+@media (max-width: 650px) {
+    #statsPanel { top: 10px; left: 10px; min-width: 135px; padding: 10px 12px; }
+    #topRightArea { top: 10px; right: 10px; }
+    .icon-btn { width: 38px; height: 38px; font-size: 16px; }
+    #subMenu { top: 48px; }
+    .stat-row { gap: 12px; }
+}
 </style>
 </head>
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.1.9</div>
-<div id="statusHint">浏览模式 (迷雾)</div>
-
+<div id="versionTag">v0.1.11</div>
 <div id="statsPanel" class="btn-shadow">
     <div id="statsHeader">
         <span><i class="fa-solid fa-earth-americas"></i> 探索档案</span>
@@ -91,7 +96,8 @@ button:active { transform: scale(0.92); }
 </div>
 
 <div id="timelineContainer" class="btn-shadow"><div id="timelineLabel">时光机进度</div><input type="range" id="timelineSlider" min="0" max="0" value="0"></div>
-<button id="mainToggle" class="btn-shadow"><i class="fa-solid fa-pen-nib"></i> 开启标记足迹</button>
+
+<button id="mainToggle" class="btn-shadow"><i class="fa-solid fa-map"></i> 浏览模式 ➔ 点击标记</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
@@ -160,7 +166,6 @@ button:active { transform: scale(0.92); }
             } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
         } else { 
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
-            // 【修改点】：替换为你调优的纯白柔和薄雾方案
             if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
     }
@@ -172,6 +177,21 @@ button:active { transform: scale(0.92); }
     let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
 
     const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    // 【新增核心UI控制器】将之前 statusHint 的职责融合到底部按钮中
+    const mainToggle = document.getElementById('mainToggle');
+    function updateMainBtnUI(stateOverride) {
+        if (stateOverride === 'locating') { mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
+        if (stateOverride === 'error') { mainToggle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
+        
+        if (!isEditMode) {
+            mainToggle.innerHTML = '<i class="fa-solid fa-map"></i> 浏览模式 ➔ 点击标记';
+            mainToggle.className = 'btn-shadow';
+        } else {
+            mainToggle.innerHTML = viewTodayOnly ? '<i class="fa-solid fa-calendar-day"></i> 今日视角 ➔ 结束标记' : '<i class="fa-solid fa-pen-nib"></i> 标记模式 ➔ 结束标记';
+            mainToggle.className = 'btn-shadow active';
+        }
+    }
 
     async function initData() {
         let loadedData = await DataManager.loadData();
@@ -188,10 +208,13 @@ button:active { transform: scale(0.92); }
     function updateCursor() { if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; } let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; }
     map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
 
-    const showTodayBtn = document.getElementById('showTodayBtn'); showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; document.getElementById('statusHint').textContent = viewTodayOnly ? '只看今日足迹 (蓝色)' : '滑动标记绿色足迹 (全部)'; renderLayers(); };
-    const mainToggle = document.getElementById('mainToggle'); const markTools = document.getElementById('markTools');
+    const showTodayBtn = document.getElementById('showTodayBtn'); 
+    showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; updateMainBtnUI(); renderLayers(); };
+    
+    const markTools = document.getElementById('markTools');
     mainToggle.onclick = () => {
-        isEditMode = !isEditMode; mainToggle.innerHTML = isEditMode ? '<i class="fa-solid fa-eye"></i> 停止标记 (恢复迷雾)' : '<i class="fa-solid fa-pen-nib"></i> 开启标记足迹'; mainToggle.className = isEditMode ? 'btn-shadow active' : 'btn-shadow'; document.getElementById('statusHint').textContent = isEditMode ? '状态：滑动标记绿色足迹' : '浏览模式 (迷雾)';
+        isEditMode = !isEditMode;
+        updateMainBtnUI();
         if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
         else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
         document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
@@ -202,12 +225,12 @@ button:active { transform: scale(0.92); }
 
     function locateMe() {
         if(navigator.geolocation) {
-            document.getElementById('statusHint').textContent = '定位中...';
+            updateMainBtnUI('locating');
             navigator.geolocation.getCurrentPosition(pos => {
                 let lat = pos.coords.latitude, lng = pos.coords.longitude; map.flyTo([lat, lng], 16);
-                document.getElementById('statusHint').textContent = isEditMode ? (viewTodayOnly ? '只看今日足迹 (蓝色)' : '滑动标记绿色足迹') : '浏览模式 (迷雾)';
+                updateMainBtnUI();
                 currentPath = [[lng, lat]]; endDraw(); checkLocalRegion(lat, lng); 
-            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); document.getElementById('statusHint').textContent = '定位失败'; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
     document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
