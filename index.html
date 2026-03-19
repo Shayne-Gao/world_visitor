@@ -19,8 +19,9 @@ button:active { transform: scale(0.92); }
 #statsHeader { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8f9fa; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px; margin-bottom: 2px; }
 #statsContent { display: flex; flex-direction: column; gap: 8px; overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease; max-height: 250px; opacity: 1; }
 #statsContent.collapsed { max-height: 0; opacity: 0; margin: 0; }
-.stat-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-.stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 75px; }
+/* 【修改点】允许换行，并调整为居中对齐适应多行文本 */
+.stat-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; max-width: 90px; word-break: break-word; line-height: 1.2; }
 .stat-val { font-size: 13px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .stat-val.global { color: #4ade80; }  
 .stat-val.country { color: #60a5fa; } 
@@ -55,7 +56,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.1.8</div>
+<div id="versionTag">v0.1.9</div>
 <div id="statusHint">浏览模式 (迷雾)</div>
 
 <div id="statsPanel" class="btn-shadow">
@@ -159,7 +160,8 @@ button:active { transform: scale(0.92); }
             } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
         } else { 
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
-            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#28a745',weight:compWeight,opacity:0.75}, interactive:false}).addTo(map);
+            // 【修改点】：替换为你调优的纯白柔和薄雾方案
+            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
     }
 
@@ -177,10 +179,7 @@ button:active { transform: scale(0.92); }
         else if (loadedData && loadedData.fog) { appData.renderCache.globalFog = loadedData.fog; appData.renderCache.dailyExplored = loadedData.daily || {}; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} appData.metadata.totalAreaKm2 = calcTotalArea(); await DataManager.saveData(appData); } 
         else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
         
-        // 【关键逻辑】本地启动时，如果迷雾缺失，自动反推生成（服务于精简版导出数据导入）
-        if(!appData.renderCache.globalFog) {
-            appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
-        }
+        if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
 
         updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); if(!isMobile) map.dragging.disable();
     }
@@ -247,60 +246,27 @@ button:active { transform: scale(0.92); }
 
     document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
     
-    // 【核心新增：极速压缩导出】
     document.getElementById('exportBtn').onclick = async () => { 
-        // 1. 浅拷贝，并丢弃极其庞大的 globalFog
-        let exportData = JSON.parse(JSON.stringify(appData));
-        exportData.renderCache.globalFog = null; 
-        
-        const jsonStr = JSON.stringify(exportData);
-        const d = new Date(), p = n => n.toString().padStart(2, '0');
+        let exportData = JSON.parse(JSON.stringify(appData)); exportData.renderCache.globalFog = null; 
+        const jsonStr = JSON.stringify(exportData); const d = new Date(), p = n => n.toString().padStart(2, '0');
         const filenameBase = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-        
         try {
-            // 2. 尝试利用浏览器底层 GZIP 极速流压缩
-            const blob = new Blob([jsonStr], {type: "application/json"});
-            const compressedStream = blob.stream().pipeThrough(new CompressionStream("gzip"));
-            const compressedBlob = await new Response(compressedStream).blob();
-            
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(compressedBlob);
-            a.download = filenameBase + '.fogbak';
-            a.click();
-        } catch (err) {
-            // 不支持流压缩的旧环境，优雅降级为传统 JSON 导出
-            const a = document.createElement('a'); 
-            a.href = URL.createObjectURL(new Blob([jsonStr], {type:"application/json"})); 
-            a.download = filenameBase + '.json'; 
-            a.click();
-        }
+            const blob = new Blob([jsonStr], {type: "application/json"}); const compressedStream = blob.stream().pipeThrough(new CompressionStream("gzip"));
+            const compressedBlob = await new Response(compressedStream).blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(compressedBlob); a.download = filenameBase + '.fogbak'; a.click();
+        } catch (err) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([jsonStr], {type:"application/json"})); a.download = filenameBase + '.json'; a.click(); }
         document.getElementById('subMenu').classList.add('hidden'); 
     };
     
-    // 【核心新增：解压导入兼容】
     document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
     document.getElementById('importFile').onchange = async (e) => {
         const file = e.target.files[0]; if(!file) return;
         try { 
             let jsonStr;
-            // 自动侦测并原生解压
-            if (file.name.endsWith('.fogbak') || file.name.endsWith('.gz')) {
-                const ds = file.stream().pipeThrough(new DecompressionStream("gzip"));
-                jsonStr = await new Response(ds).text();
-            } else {
-                jsonStr = await file.text();
-            }
-
+            if (file.name.endsWith('.fogbak') || file.name.endsWith('.gz')) { const ds = file.stream().pipeThrough(new DecompressionStream("gzip")); jsonStr = await new Response(ds).text(); } 
+            else { jsonStr = await file.text(); }
             let parsed = JSON.parse(jsonStr); 
-            if(parsed.version === "1.0.0") { 
-                appData = parsed; 
-                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; 
-                // 数据导入后，瞬间把剔除的迷雾补回来
-                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
-            } else if(parsed.fog) { 
-                appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
-                try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} appData.metadata.totalAreaKm2 = calcTotalArea(); 
-            } 
+            if(parsed.version === "1.0.0") { appData = parsed; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); } 
+            else if(parsed.fog) { appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} appData.metadata.totalAreaKm2 = calcTotalArea(); } 
             historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); alert("导入成功！"); 
         } catch(err) { alert("文件格式错误或已损坏！"); console.error(err); }
         e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
