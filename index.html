@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>世界迷雾 Web Demo - 智能操作版</title>
+<title>世界迷雾 Web Demo - 自动探索版</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
@@ -61,7 +61,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.1.12</div>
+<div id="versionTag">v0.1.13</div>
 
 <div id="statsPanel" class="btn-shadow">
     <div id="statsHeader">
@@ -91,7 +91,13 @@ button:active { transform: scale(0.92); }
 
 <div id="rightSideTools">
     <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn" data-size="0.02">小</button><button class="brush-btn active" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
-    <div id="baseTools"><button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button><button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button><button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button><button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button></div>
+    <div id="baseTools">
+        <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
+        <button id="autoRecordBtn" class="icon-btn btn-shadow" style="color:#28a745; font-size:18px;" title="自动探索"><i class="fa-solid fa-person-walking"></i></button>
+        <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
+        <button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button>
+        <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
+    </div>
 </div>
 
 <div id="timelineContainer" class="btn-shadow"><div id="timelineLabel">时光机进度</div><input type="range" id="timelineSlider" min="0" max="0" value="0"></div>
@@ -114,7 +120,9 @@ button:active { transform: scale(0.92); }
 
     const PolylineUtil = { encode: function(coords) { let res = '', pLat = 0, pLng = 0; for (let p of coords) { let lat = Math.round(p[1]*1e5), lng = Math.round(p[0]*1e5); res += this._enc(lat - pLat) + this._enc(lng - pLng); pLat = lat; pLng = lng; } return res; }, _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } };
 
-    const STORAGE_KEY = 'fog_of_world_data_v5'; const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
+    const STORAGE_KEY = 'fog_of_world_data_v5'; 
+    const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
+    const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
     let appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
 
     const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
@@ -133,15 +141,13 @@ button:active { transform: scale(0.92); }
         if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
         const pt = turf.point([lng, lat]);
         const lvls = [{z:3, idL:'lblCountry', idP:'pctCountry', n:'国家'}, {z:7, idL:'lblCity', idP:'pctCity', n:'城市'}, {z:10, idL:'lblDistrict', idP:'pctDistrict', n:'区'}];
-        
         for(let i=0; i<lvls.length; i++) {
             let lvl = lvls[i]; let target = null, rName = lvl.n + "未知";
             for(let k in appData.renderCache.regionsCache) {
                 if(k.startsWith(lvl.z + '_')) { let r = appData.renderCache.regionsCache[k]; if(r.geojson && turf.booleanPointInPolygon(pt, r.geojson)) { target = r; rName = k.split('_')[1]; break; } }
             }
             if(!target) {
-                document.getElementById(lvl.idL).textContent = '嗅探中..';
-                if(i>0) await new Promise(r => setTimeout(r, 1100));
+                document.getElementById(lvl.idL).textContent = '嗅探中..'; if(i>0) await new Promise(r => setTimeout(r, 1100));
                 try {
                     let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${lvl.z}&polygon_geojson=1`); let d = await res.json();
                     if(d && d.geojson && (d.geojson.type==='Polygon'||d.geojson.type==='MultiPolygon') && d.name) {
@@ -172,81 +178,28 @@ button:active { transform: scale(0.92); }
     function buildTimeline() { timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); }
     function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
     document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
-
     let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
-
     const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-
     const mainToggle = document.getElementById('mainToggle');
+
     function updateMainBtnUI(stateOverride) {
         if (stateOverride === 'locating') { mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
+        if (stateOverride === 'processing') { mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
         if (stateOverride === 'error') { mainToggle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
+        if (stateOverride === 'recording') { mainToggle.innerHTML = '<i class="fa-solid fa-person-walking"></i> 自动探索中 (屏幕常亮)'; mainToggle.className = 'btn-shadow active'; return; }
         
-        if (!isEditMode) {
-            mainToggle.innerHTML = '<i class="fa-solid fa-map"></i> 浏览模式 ➔ 点击标记';
-            mainToggle.className = 'btn-shadow';
-        } else {
-            mainToggle.innerHTML = viewTodayOnly ? '<i class="fa-solid fa-calendar-day"></i> 今日视角 ➔ 结束标记' : '<i class="fa-solid fa-pen-nib"></i> 标记模式 ➔ 结束标记';
-            mainToggle.className = 'btn-shadow active';
-        }
+        if (!isEditMode) { mainToggle.innerHTML = '<i class="fa-solid fa-map"></i> 浏览模式 ➔ 点击标记'; mainToggle.className = 'btn-shadow'; } 
+        else { mainToggle.innerHTML = viewTodayOnly ? '<i class="fa-solid fa-calendar-day"></i> 今日视角 ➔ 结束标记' : '<i class="fa-solid fa-pen-nib"></i> 标记模式 ➔ 结束标记'; mainToggle.className = 'btn-shadow active'; }
     }
 
-    async function initData() {
-        let loadedData = await DataManager.loadData();
-        if(loadedData && loadedData.version === "1.0.0") { appData = loadedData; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; } 
-        else if (loadedData && loadedData.fog) { appData.renderCache.globalFog = loadedData.fog; appData.renderCache.dailyExplored = loadedData.daily || {}; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} appData.metadata.totalAreaKm2 = calcTotalArea(); await DataManager.saveData(appData); } 
-        else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
-        
-        if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
-
-        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); if(!isMobile) map.dragging.disable();
-    }
-    localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
-
-    function updateCursor() { if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; } let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; }
-    map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
-
-    const showTodayBtn = document.getElementById('showTodayBtn'); 
-    showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; updateMainBtnUI(); renderLayers(); };
-    
-    const markTools = document.getElementById('markTools');
-    mainToggle.onclick = () => {
-        isEditMode = !isEditMode;
-        updateMainBtnUI();
-        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
-        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
-        document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
-    };
-
-    document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
-    document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
-
-    // 【修改点】定位时传入 true 以突破非强制模式的防误触限制
-    function locateMe() {
-        if(navigator.geolocation) {
-            updateMainBtnUI('locating');
-            navigator.geolocation.getCurrentPosition(pos => {
-                let lat = pos.coords.latitude, lng = pos.coords.longitude; map.flyTo([lat, lng], 16);
-                updateMainBtnUI();
-                currentPath = [[lng, lat]]; endDraw(true); 
-            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
-        } else { alert('当前环境不支持定位'); }
-    }
-    document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
-
-    function startDraw(latlng) { if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)); tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map); }
-    function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
-    
-    // 【修改点】接收 force 标记进行核心渲染流水线强行调用
-    async function endDraw(force) {
-        if(force !== true && (!isEditMode || !isDrawing)) return; 
-        isDrawing = false; if(tempPolyline) map.removeLayer(tempPolyline); if(currentPath.length === 0) return;
-        let simplifiedCoords = currentPath;
-        if(currentPath.length > 2) { let line = turf.simplify(turf.lineString(currentPath), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
-        const trackRecord = { id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), timestamp: Date.now(), source: 'web_draw', brushRadiusKm: brushRadiusKm, encodedPath: PolylineUtil.encode(simplifiedCoords) };
+    // 【核心新增：将Turf解雾逻辑抽离，供手动和自动共享】
+    async function processTrackAndSave(coordsArray, trackSource = 'web_draw') {
+        if(!coordsArray || coordsArray.length === 0) return;
+        let simplifiedCoords = coordsArray;
+        if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
+        const trackRecord = { id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), timestamp: Date.now(), source: trackSource, brushRadiusKm: brushRadiusKm, encodedPath: PolylineUtil.encode(simplifiedCoords) };
         let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
         mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
-        
         try {
             let newFog = turf.difference(appData.renderCache.globalFog, mask);
             if(newFog) { 
@@ -257,7 +210,124 @@ button:active { transform: scale(0.92); }
                 appData.metadata.totalAreaKm2 = calcTotalArea(); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); 
                 checkLocalRegion(simplifiedCoords[simplifiedCoords.length-1][1], simplifiedCoords[simplifiedCoords.length-1][0]);
             }
-        } catch(err) {}
+        } catch(err) { console.error(err); }
+    }
+
+    // 【核心新增：断线草稿恢复】
+    async function recoverDraft() {
+        try {
+            let draft = await localforage.getItem(DRAFT_KEY);
+            if (draft && draft.length > 0) {
+                updateMainBtnUI('processing');
+                await processTrackAndSave(draft, 'auto_track_recovered');
+                await localforage.removeItem(DRAFT_KEY);
+                updateMainBtnUI();
+                alert('已为您恢复上次因意外中断的探索轨迹！');
+            }
+        } catch(e) {}
+    }
+
+    async function initData() {
+        let loadedData = await DataManager.loadData();
+        if(loadedData && loadedData.version === "1.0.0") { appData = loadedData; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; } 
+        else if (loadedData && loadedData.fog) { appData.renderCache.globalFog = loadedData.fog; appData.renderCache.dailyExplored = loadedData.daily || {}; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} appData.metadata.totalAreaKm2 = calcTotalArea(); await DataManager.saveData(appData); } 
+        else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
+        if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
+
+        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); if(!isMobile) map.dragging.disable();
+        
+        // 启动时触发一次断线恢复检查
+        await recoverDraft();
+    }
+    localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
+
+    function updateCursor() { if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; } let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; }
+    map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
+
+    const showTodayBtn = document.getElementById('showTodayBtn'); showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; updateMainBtnUI(); renderLayers(); };
+    const markTools = document.getElementById('markTools');
+    mainToggle.onclick = () => {
+        if(isAutoRecording) return alert("请先停止当前的自动探索");
+        isEditMode = !isEditMode; updateMainBtnUI();
+        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
+        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
+        document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
+    };
+
+    document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
+    document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
+
+    function locateMe() {
+        if(navigator.geolocation) {
+            updateMainBtnUI('locating');
+            navigator.geolocation.getCurrentPosition(pos => {
+                let lat = pos.coords.latitude, lng = pos.coords.longitude; map.flyTo([lat, lng], 16); updateMainBtnUI();
+                currentPath = [[lng, lat]]; endDraw(true); 
+            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+        } else { alert('当前环境不支持定位'); }
+    }
+    document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
+
+    // 【新增核心功能：全自动探索模式】
+    let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
+    document.getElementById('autoRecordBtn').onclick = async () => {
+        if(isEditMode) return alert("请先关闭手动标记模式");
+        const btn = document.getElementById('autoRecordBtn');
+        if (isAutoRecording) {
+            // 停止记录并结算
+            isAutoRecording = false;
+            if(watchId) navigator.geolocation.clearWatch(watchId);
+            if(wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
+            btn.innerHTML = '<i class="fa-solid fa-person-walking"></i>'; btn.style.color = '#28a745';
+            
+            if (livePath.length > 0) {
+                updateMainBtnUI('processing');
+                await processTrackAndSave(livePath, 'auto_track');
+                await localforage.removeItem(DRAFT_KEY); // 结算成功，清空幽灵草稿
+            }
+            if(livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+            livePath = []; updateMainBtnUI();
+        } else {
+            // 开始记录
+            if(!navigator.geolocation) return alert("当前环境不支持定位");
+            isAutoRecording = true; livePath = [];
+            try { if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){ console.warn('唤醒锁不可用'); }
+            btn.innerHTML = '<i class="fa-solid fa-stop"></i>'; btn.style.color = '#dc3545';
+            updateMainBtnUI('recording');
+            
+            watchId = navigator.geolocation.watchPosition(
+                async (pos) => {
+                    if (pos.coords.accuracy > 30) return; // 精度太低过滤
+                    const lat = pos.coords.latitude, lng = pos.coords.longitude, currentLatLng = L.latLng(lat, lng);
+                    
+                    if (livePath.length > 0) {
+                        const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
+                        if (currentLatLng.distanceTo(lastLatLng) < 10) return; // 距离小于 10 米过滤，防原地漂移
+                    }
+                    
+                    livePath.push([lng, lat]);
+                    // 实时在地图上绘制虚线草稿
+                    if (!livePolyline) {
+                        let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                        livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                    } else { livePolyline.addLatLng([lat, lng]); }
+                    map.panTo([lat, lng]);
+                    
+                    // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
+                    await localforage.setItem(DRAFT_KEY, livePath); 
+                },
+                (err) => { console.warn(err); },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+    };
+
+    function startDraw(latlng) { if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)); tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map); }
+    function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
+    async function endDraw(force) {
+        if(force !== true && (!isEditMode || !isDrawing)) return; 
+        isDrawing = false; if(tempPolyline) map.removeLayer(tempPolyline); 
+        if(currentPath.length > 0) await processTrackAndSave(currentPath, 'web_draw');
     }
 
     const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); let isRightDragging = false; let lastX, lastY;
