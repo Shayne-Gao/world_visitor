@@ -53,6 +53,12 @@ button:active { transform: scale(0.92); }
 #mainToggle.active { background: #dc3545; color: #fff; border-color: #dc3545; }
 #mainToggle.active i { color: #fff; }
 
+#searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
+#searchContainer i { color: #666; font-size: 14px; }
+#searchInput { border: none; outline: none; background: transparent; flex: 1; font-size: 14px; color: #333; }
+#searchBtn { background: #007bff; color: white; padding: 6px 12px; border-radius: 15px; font-size: 12px; font-weight: bold; }
+#searchBtn:hover { background: #0056b3; }
+
 @media (max-width: 650px) {
     #statsPanel { top: 10px; left: 10px; min-width: 135px; padding: 10px 12px; }
     #topRightArea { top: 10px; right: 10px; }
@@ -65,7 +71,13 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.1.13</div>
+<div id="versionTag">v0.1.11</div>
+
+<div id="searchContainer" class="btn-shadow hidden">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="searchInput" placeholder="搜索地点并飞往..." autocomplete="off">
+    <button id="searchBtn">定位</button>
+</div>
 
 <div id="statsPanel" class="btn-shadow">
     <div id="statsHeader">
@@ -253,8 +265,8 @@ button:active { transform: scale(0.92); }
     mainToggle.onclick = () => {
         if(isAutoRecording) return alert("请先停止当前的自动探索");
         isEditMode = !isEditMode; updateMainBtnUI();
-        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
-        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
+        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('searchContainer').classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
+        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); document.getElementById('searchContainer').classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
         document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
     };
 
@@ -369,6 +381,26 @@ button:active { transform: scale(0.92); }
         } catch(err) { alert("文件格式错误或已损坏！"); console.error(err); }
         e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
     };
+
+    // 搜索功能实现
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    async function performSearch() {
+        const query = searchInput.value.trim();
+        if(!query) return;
+        searchBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        try {
+            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+            const data = await resp.json();
+            if(data && data.length > 0) {
+                const { lat, lon } = data[0];
+                map.flyTo([lat, lon], 14, { duration: 1.5 });
+            } else { alert("未找到该地点，请尝试更精确的描述"); }
+        } catch(err) { alert("搜索服务异常，请稍后再试"); }
+        searchBtn.innerHTML = '定位';
+    }
+    searchBtn.onclick = performSearch;
+    searchInput.onkeydown = (e) => { if(e.key === 'Enter') performSearch(); };
 </script>
 </body>
 </html>
