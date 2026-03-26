@@ -412,66 +412,83 @@ button:active { transform: scale(0.92); }
                 alert("恢复成功！");
             } else {
                 updateMainBtnUI('processing');
-                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在智能合并...';
+                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
                 
-                // 1. 全局去重（基于 ID 或 时间戳+路径特征）
+                // 1. 全局去重与排序
                 const existingTracks = appData.sourceOfTruth.tracks;
                 const newTracks = targetData.sourceOfTruth.tracks;
-                
                 const trackMap = new Map();
-                // 先存入本地数据
                 existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
-                // 存入新数据（如果 ID 重复则跳过，保证“最老数据优先”逻辑：如果本地已有，保留本地的）
                 newTracks.forEach(t => {
                     const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
                     if (!trackMap.has(key)) trackMap.set(key, t);
                 });
-
                 const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
 
-                // 2. 重新构建地理索引（确保数据完整性，不再进行激进的空间裁剪）
-                let combinedExplored = null;
+                // 2. 空间增量判定与路径简化
+                let cumulativeExplored = null;
+                const optimizedTracks = [];
                 appData.renderCache.dailyExplored = {};
-                
+
                 for(let i = 0; i < allTracks.length; i++) {
                     const track = allTracks[i];
-                    const coords = PolylineUtil.decode(track.encodedPath);
+                    let coords = PolylineUtil.decode(track.encodedPath);
                     if(coords.length < 1) continue;
-                    
+
+                    // A. 路径简化 (A->B->C->D => A->D)
+                    if(coords.length > 2) {
+                        const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
+                        coords = line.geometry.coordinates;
+                        track.encodedPath = PolylineUtil.encode(coords); // 更新压缩后的路径
+                    }
+
+                    // B. 空间增量判定 (是否点亮了新区域)
                     let trackPoly;
                     try {
                         if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
                         else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
-                        
-                        // 修正：Turf 运算可能产生无效几何，进行一次 truncate 保证坐标精度
                         trackPoly = turf.truncate(trackPoly, {precision: 6});
 
-                        // 更新全球已探索区域
-                        if (!combinedExplored) combinedExplored = trackPoly;
-                        else combinedExplored = turf.union(combinedExplored, trackPoly);
+                        if (!cumulativeExplored) {
+                            cumulativeExplored = trackPoly;
+                            optimizedTracks.push(track);
+                        } else {
+                            // 计算增量面积
+                            const diff = turf.difference(trackPoly, cumulativeExplored);
+                            if (diff && turf.area(diff) > 1) { // 只有新增面积 > 1平方米时才保留
+                                cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                                optimizedTracks.push(track);
+                            } else {
+                                // 100% 冗余路径，跳过不加入 optimizedTracks
+                                continue; 
+                            }
+                        }
 
-                        // 更新每日索引（用于时光机）
+                        // C. 重建时光机每日索引 (仅保留有贡献的轨迹)
                         const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
                         if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
                         else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
 
-                    } catch(e) { console.warn("轨迹处理跳过:", track.id, e); }
+                    } catch(e) { 
+                        // 容灾：如果空间计算出错，保守起见保留原始数据
+                        optimizedTracks.push(track); 
+                        if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                    }
                     
-                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 处理中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
                 }
 
-                // 3. 最终同步
-                appData.sourceOfTruth.tracks = allTracks;
-                appData.renderCache.globalExplored = combinedExplored;
-                // 重新生成迷雾（不进行过度简化，保证足迹精准）
-                if (combinedExplored) {
-                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), combinedExplored);
+                // 3. 最终数据同步
+                appData.sourceOfTruth.tracks = optimizedTracks;
+                appData.renderCache.globalExplored = cumulativeExplored;
+                if (cumulativeExplored) {
+                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), cumulativeExplored);
                 } else {
                     appData.renderCache.globalFog = turf.polygon(worldCoords);
                 }
                 
                 appData.metadata.totalAreaKm2 = calcTotalArea();
-                alert(`合并完成！当前共有 ${allTracks.length} 条轨迹记录。`);
+                alert(`深度合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
             }
 
             historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
