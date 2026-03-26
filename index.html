@@ -436,9 +436,32 @@ button:active { transform: scale(0.92); }
             isRightDragging = false; updateCursor(); 
         } 
     });
-    mc.addEventListener('touchstart', (e) => { if(!isEditMode) return; if(e.touches.length===1) startDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
-    mc.addEventListener('touchmove', (e) => { if(!isEditMode || !isDrawing) return; e.preventDefault(); if(e.touches.length===1) moveDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
-    mc.addEventListener('touchend', () => endDraw(false));
+    mc.addEventListener('touchstart', (e) => { 
+        if(!isEditMode) return; 
+        if(e.touches.length === 1) {
+            startDraw(map.mouseEventToLatLng(e.touches[0])); 
+        } else {
+            // 如果是多指操作，强制取消当前的绘图状态
+            if(isDrawing) endDraw(true); 
+        }
+    }, {passive: false});
+
+    mc.addEventListener('touchmove', (e) => { 
+        if(!isEditMode) return;
+        if(e.touches.length === 1 && isDrawing) {
+            e.preventDefault(); 
+            moveDraw(map.mouseEventToLatLng(e.touches[0])); 
+        } else if (e.touches.length > 1) {
+            // 双指缩放或平移时，确保不触发绘图逻辑
+            if(isDrawing) endDraw(true);
+        }
+    }, {passive: false});
+
+    mc.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0 && isDrawing) {
+            endDraw(false);
+        }
+    });
 
     document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
     
