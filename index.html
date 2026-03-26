@@ -161,6 +161,7 @@ button:active { transform: scale(0.92); }
     const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
 
     let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.05, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+    let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
 
     const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
     const getTodayPrefix = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
@@ -438,26 +439,38 @@ button:active { transform: scale(0.92); }
     });
     mc.addEventListener('touchstart', (e) => { 
         if(!isEditMode) return; 
+        if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+
         if(e.touches.length === 1) {
-            startDraw(map.mouseEventToLatLng(e.touches[0])); 
+            // 延迟 60ms 判定，如果 60ms 内没有出现第二根手指，才开始绘图
+            const touch = e.touches[0];
+            const latlng = map.mouseEventToLatLng(touch);
+            touchTimer = setTimeout(() => {
+                startDraw(latlng);
+                touchTimer = null;
+            }, 60);
         } else {
-            // 如果是多指操作，强制取消当前的绘图状态
+            // 如果已经是多指，确保取消绘图
             if(isDrawing) endDraw(true); 
         }
     }, {passive: false});
 
     mc.addEventListener('touchmove', (e) => { 
         if(!isEditMode) return;
-        if(e.touches.length === 1 && isDrawing) {
-            e.preventDefault(); 
-            moveDraw(map.mouseEventToLatLng(e.touches[0])); 
+        if(e.touches.length === 1) {
+            if (isDrawing) {
+                e.preventDefault(); 
+                moveDraw(map.mouseEventToLatLng(e.touches[0])); 
+            }
         } else if (e.touches.length > 1) {
-            // 双指缩放或平移时，确保不触发绘图逻辑
+            // 一旦出现多指，立刻清除判定计时器并强制结束绘图
+            if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
             if(isDrawing) endDraw(true);
         }
     }, {passive: false});
 
     mc.addEventListener('touchend', (e) => {
+        if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
         if (e.touches.length === 0 && isDrawing) {
             endDraw(false);
         }
