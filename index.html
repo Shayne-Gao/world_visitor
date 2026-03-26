@@ -412,17 +412,26 @@ button:active { transform: scale(0.92); }
                 alert("恢复成功！");
             } else {
                 updateMainBtnUI('processing');
-                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度合并...';
+                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在智能合并...';
                 
-                // 1. 全局去重并按时间排序
-                let allTracks = [...appData.sourceOfTruth.tracks, ...targetData.sourceOfTruth.tracks];
-                const seenIds = new Set();
-                allTracks = allTracks.filter(t => { if(seenIds.has(t.id)) return false; seenIds.add(t.id); return true; });
-                allTracks.sort((a, b) => a.timestamp - b.timestamp);
+                // 1. 全局去重（基于 ID 或 时间戳+路径特征）
+                const existingTracks = appData.sourceOfTruth.tracks;
+                const newTracks = targetData.sourceOfTruth.tracks;
+                
+                const trackMap = new Map();
+                // 先存入本地数据
+                existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
+                // 存入新数据（如果 ID 重复则跳过，保证“最老数据优先”逻辑：如果本地已有，保留本地的）
+                newTracks.forEach(t => {
+                    const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
+                    if (!trackMap.has(key)) trackMap.set(key, t);
+                });
 
-                // 2. 空间拓扑合并逻辑：确保数据干净无冗余
+                const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+                // 2. 重新构建地理索引（确保数据完整性，不再进行激进的空间裁剪）
                 let combinedExplored = null;
-                const cleanTracks = [];
+                appData.renderCache.dailyExplored = {};
                 
                 for(let i = 0; i < allTracks.length; i++) {
                     const track = allTracks[i];
@@ -430,52 +439,39 @@ button:active { transform: scale(0.92); }
                     if(coords.length < 1) continue;
                     
                     let trackPoly;
-                    if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
-                    else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
+                    try {
+                        if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
+                        else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
+                        
+                        // 修正：Turf 运算可能产生无效几何，进行一次 truncate 保证坐标精度
+                        trackPoly = turf.truncate(trackPoly, {precision: 6});
+
+                        // 更新全球已探索区域
+                        if (!combinedExplored) combinedExplored = trackPoly;
+                        else combinedExplored = turf.union(combinedExplored, trackPoly);
+
+                        // 更新每日索引（用于时光机）
+                        const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
+                        if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
+                        else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
+
+                    } catch(e) { console.warn("轨迹处理跳过:", track.id, e); }
                     
-                    if (!combinedExplored) {
-                        combinedExplored = trackPoly;
-                        cleanTracks.push(track);
-                    } else {
-                        // 核心去重：判断当前轨迹是否被已有领地完全覆盖
-                        try {
-                            const diff = turf.difference(trackPoly, combinedExplored);
-                            if (diff) {
-                                // 只要还有一部分在外面，就保留这条轨迹
-                                // 为了保持轨迹完整性，我们保留原轨迹。如果追求极致干净，这里可以对轨迹进行裁剪，但会破坏“真实路径”属性。
-                                // 这里采取折中方案：保留增量贡献的完整轨迹。
-                                combinedExplored = turf.union(combinedExplored, trackPoly);
-                                cleanTracks.push(track);
-                            }
-                        } catch(e) {
-                            // 拓扑运算出错时，保守起见保留轨迹
-                            combinedExplored = turf.union(combinedExplored, trackPoly);
-                            cleanTracks.push(track);
-                        }
-                    }
-                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 合并中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 处理中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
                 }
 
-                // 3. 重建缓存
-                appData.sourceOfTruth.tracks = cleanTracks;
-                appData.renderCache.globalExplored = turf.truncate(turf.simplify(combinedExplored, {tolerance: 0.0001}), {precision: 5});
-                appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored);
-                
-                // 重建每日索引
-                appData.renderCache.dailyExplored = {};
-                for(const t of cleanTracks) {
-                    const dateKey = new Date(t.timestamp).toISOString().split('T')[0];
-                    const coords = PolylineUtil.decode(t.encodedPath);
-                    let poly;
-                    if(coords.length === 1) poly = turf.buffer(turf.point(coords[0]), t.brushRadiusKm, {units: 'kilometers'});
-                    else poly = turf.buffer(turf.lineString(coords), t.brushRadiusKm, {units: 'kilometers'});
-                    
-                    if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = poly;
-                    else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], poly);
+                // 3. 最终同步
+                appData.sourceOfTruth.tracks = allTracks;
+                appData.renderCache.globalExplored = combinedExplored;
+                // 重新生成迷雾（不进行过度简化，保证足迹精准）
+                if (combinedExplored) {
+                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), combinedExplored);
+                } else {
+                    appData.renderCache.globalFog = turf.polygon(worldCoords);
                 }
                 
                 appData.metadata.totalAreaKm2 = calcTotalArea();
-                alert(`合并完成！剔除了 ${allTracks.length - cleanTracks.length} 条重复/冗余轨迹。`);
+                alert(`合并完成！当前共有 ${allTracks.length} 条轨迹记录。`);
             }
 
             historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
