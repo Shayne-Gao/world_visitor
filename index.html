@@ -135,7 +135,23 @@ button:active { transform: scale(0.92); }
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
     document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
 
-    const PolylineUtil = { encode: function(coords) { let res = '', pLat = 0, pLng = 0; for (let p of coords) { let lat = Math.round(p[1]*1e5), lng = Math.round(p[0]*1e5); res += this._enc(lat - pLat) + this._enc(lng - pLng); pLat = lat; pLng = lng; } return res; }, _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } };
+    const PolylineUtil = { 
+        encode: function(coords) { let res = '', pLat = 0, pLng = 0; for (let p of coords) { let lat = Math.round(p[1]*1e5), lng = Math.round(p[0]*1e5); res += this._enc(lat - pLat) + this._enc(lng - pLng); pLat = lat; pLng = lng; } return res; },
+        decode: function(str) {
+            let index = 0, lat = 0, lng = 0, res = [], shift, result, byte;
+            while (index < str.length) {
+                shift = 0; result = 0;
+                do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                shift = 0; result = 0;
+                do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                res.push([lng / 1e5, lat / 1e5]);
+            }
+            return res;
+        },
+        _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } 
+    };
 
     const STORAGE_KEY = 'fog_of_world_data_v5'; 
     const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
