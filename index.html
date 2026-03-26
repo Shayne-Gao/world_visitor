@@ -401,10 +401,41 @@ button:active { transform: scale(0.92); }
         if(currentPath.length > 0) await processTrackAndSave(currentPath, 'web_draw');
     }
 
-    const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); let isRightDragging = false; let lastX, lastY;
-    mc.addEventListener('mousedown', (e) => { if (e.button === 0 && isEditMode) { startDraw(map.mouseEventToLatLng(e)); } else if (e.button === 2) { e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing'; } });
-    mc.addEventListener('mousemove', (e) => { if (isDrawing) { moveDraw(map.mouseEventToLatLng(e)); } else if (isRightDragging) { const dx = e.clientX - lastX; const dy = e.clientY - lastY; map.panBy([-dx, -dy], {animate: false}); lastX = e.clientX; lastY = e.clientY; } });
-    document.addEventListener('mouseup', (e) => { if (e.button === 0 && isDrawing) { endDraw(); } else if (e.button === 2 && isRightDragging) { isRightDragging = false; updateCursor(); } });
+    const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); 
+    let isDragging = false, isRightDragging = false; let lastX, lastY;
+
+    mc.addEventListener('mousedown', (e) => { 
+        if (e.button === 0) {
+            if (isEditMode) {
+                startDraw(map.mouseEventToLatLng(e)); 
+            } else {
+                isDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing';
+            }
+        } else if (e.button === 2) { 
+            e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing'; 
+        } 
+    });
+
+    mc.addEventListener('mousemove', (e) => { 
+        if (isDrawing) { 
+            moveDraw(map.mouseEventToLatLng(e)); 
+        } else if (isDragging || isRightDragging) { 
+            const dx = e.clientX - lastX; const dy = e.clientY - lastY; 
+            map.panBy([-dx, -dy], {animate: false}); lastX = e.clientX; lastY = e.clientY; 
+        } 
+    });
+
+    document.addEventListener('mouseup', (e) => { 
+        if (e.button === 0) {
+            if (isDrawing) {
+                endDraw(); 
+            } else if (isDragging) {
+                isDragging = false; updateCursor();
+            }
+        } else if (e.button === 2 && isRightDragging) { 
+            isRightDragging = false; updateCursor(); 
+        } 
+    });
     mc.addEventListener('touchstart', (e) => { if(!isEditMode) return; if(e.touches.length===1) startDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
     mc.addEventListener('touchmove', (e) => { if(!isEditMode || !isDrawing) return; e.preventDefault(); if(e.touches.length===1) moveDraw(map.mouseEventToLatLng(e.touches[0])); }, {passive: false});
     mc.addEventListener('touchend', () => endDraw(false));
