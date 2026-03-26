@@ -98,7 +98,8 @@ button:active { transform: scale(0.92); }
         <button id="menuBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-gear"></i></button>
         <div id="subMenu" class="btn-shadow hidden">
             <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出存档</button>
-            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 导入存档</button>
+            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 恢复存档 (覆盖)</button>
+            <button id="mergeBtn" class="sub-btn"><i class="fa-solid fa-code-merge"></i> 合并存档 (追加)</button>
             <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
             <input type="file" id="importFile" accept=".json,.fogbak,.gz" style="display:none;">
         </div>
@@ -367,19 +368,103 @@ button:active { transform: scale(0.92); }
         document.getElementById('subMenu').classList.add('hidden'); 
     };
     
-    document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+    document.getElementById('importBtn').onclick = () => { isMergeMode = false; document.getElementById('importFile').click(); };
+    document.getElementById('mergeBtn').onclick = () => { isMergeMode = true; document.getElementById('importFile').click(); };
+    let isMergeMode = false;
+
     document.getElementById('importFile').onchange = async (e) => {
         const file = e.target.files[0]; if(!file) return;
         try { 
             let jsonStr;
             if (file.name.endsWith('.fogbak') || file.name.endsWith('.gz')) { const ds = file.stream().pipeThrough(new DecompressionStream("gzip")); jsonStr = await new Response(ds).text(); } 
             else { jsonStr = await file.text(); }
-            let parsed = JSON.parse(jsonStr); 
-            if(parsed.version === "1.0.0") { appData = parsed; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); } 
-            else if(parsed.fog) { appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} appData.metadata.totalAreaKm2 = calcTotalArea(); } 
-            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); alert("导入成功！"); 
-        } catch(err) { alert("文件格式错误或已损坏！"); console.error(err); }
-        e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
+            let parsed = JSON.parse(jsonStr);
+            
+            // 确保 parsed 格式统一
+            let targetData;
+            if(parsed.version === "1.0.0") { targetData = parsed; }
+            else if(parsed.fog) { 
+                targetData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
+                try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} 
+            } else { throw new Error("无效的存档格式"); }
+
+            if (!isMergeMode) {
+                if(!confirm("确定要恢复存档吗？当前所有未备份的数据将被覆盖！")) return;
+                appData = targetData;
+                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+                alert("恢复成功！");
+            } else {
+                updateMainBtnUI('processing');
+                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度合并...';
+                
+                // 1. 全局去重并按时间排序
+                let allTracks = [...appData.sourceOfTruth.tracks, ...targetData.sourceOfTruth.tracks];
+                const seenIds = new Set();
+                allTracks = allTracks.filter(t => { if(seenIds.has(t.id)) return false; seenIds.add(t.id); return true; });
+                allTracks.sort((a, b) => a.timestamp - b.timestamp);
+
+                // 2. 空间拓扑合并逻辑：确保数据干净无冗余
+                let combinedExplored = null;
+                const cleanTracks = [];
+                
+                for(let i = 0; i < allTracks.length; i++) {
+                    const track = allTracks[i];
+                    const coords = PolylineUtil.decode(track.encodedPath);
+                    if(coords.length < 1) continue;
+                    
+                    let trackPoly;
+                    if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
+                    else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
+                    
+                    if (!combinedExplored) {
+                        combinedExplored = trackPoly;
+                        cleanTracks.push(track);
+                    } else {
+                        // 核心去重：判断当前轨迹是否被已有领地完全覆盖
+                        try {
+                            const diff = turf.difference(trackPoly, combinedExplored);
+                            if (diff) {
+                                // 只要还有一部分在外面，就保留这条轨迹
+                                // 为了保持轨迹完整性，我们保留原轨迹。如果追求极致干净，这里可以对轨迹进行裁剪，但会破坏“真实路径”属性。
+                                // 这里采取折中方案：保留增量贡献的完整轨迹。
+                                combinedExplored = turf.union(combinedExplored, trackPoly);
+                                cleanTracks.push(track);
+                            }
+                        } catch(e) {
+                            // 拓扑运算出错时，保守起见保留轨迹
+                            combinedExplored = turf.union(combinedExplored, trackPoly);
+                            cleanTracks.push(track);
+                        }
+                    }
+                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 合并中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+                }
+
+                // 3. 重建缓存
+                appData.sourceOfTruth.tracks = cleanTracks;
+                appData.renderCache.globalExplored = turf.truncate(turf.simplify(combinedExplored, {tolerance: 0.0001}), {precision: 5});
+                appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored);
+                
+                // 重建每日索引
+                appData.renderCache.dailyExplored = {};
+                for(const t of cleanTracks) {
+                    const dateKey = new Date(t.timestamp).toISOString().split('T')[0];
+                    const coords = PolylineUtil.decode(t.encodedPath);
+                    let poly;
+                    if(coords.length === 1) poly = turf.buffer(turf.point(coords[0]), t.brushRadiusKm, {units: 'kilometers'});
+                    else poly = turf.buffer(turf.lineString(coords), t.brushRadiusKm, {units: 'kilometers'});
+                    
+                    if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = poly;
+                    else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], poly);
+                }
+                
+                appData.metadata.totalAreaKm2 = calcTotalArea();
+                alert(`合并完成！剔除了 ${allTracks.length - cleanTracks.length} 条重复/冗余轨迹。`);
+            }
+
+            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
+        } catch(err) { alert("操作失败：" + err.message); console.error(err); }
+        updateMainBtnUI(); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
     };
 
     // 搜索功能实现
