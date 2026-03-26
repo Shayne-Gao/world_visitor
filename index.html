@@ -71,9 +71,9 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-<div id="versionTag">v0.1.11</div>
+    <div id="versionTag">v0.1.13 (Schema v2.0)</div>
 
-<div id="searchContainer" class="btn-shadow hidden">
+    <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
     <input type="text" id="searchInput" placeholder="搜索地点并飞往..." autocomplete="off">
     <button id="searchBtn">定位</button>
@@ -156,7 +156,7 @@ button:active { transform: scale(0.92); }
     const STORAGE_KEY = 'fog_of_world_data_v5'; 
     const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
-    let appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
+    let appData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
 
     const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
 
@@ -167,6 +167,16 @@ button:active { transform: scale(0.92); }
 
     function updateStatsUI() { let area = appData.metadata.totalAreaKm2; document.getElementById('statArea').textContent = area.toFixed(3) + ' km²'; document.getElementById('statPct').textContent = ((area / EARTH_AREA_KM2) * 100).toFixed(8) + '%'; document.getElementById('statPct').title = area.toFixed(3) + ' km²'; }
     function calcTotalArea() { if(!appData.renderCache.globalExplored) return 0; return turf.area(appData.renderCache.globalExplored) / 1000000; }
+
+    function getBbox(coords) {
+        if(!coords || coords.length === 0) return null;
+        let minLng = coords[0][0], minLat = coords[0][1], maxLng = coords[0][0], maxLat = coords[0][1];
+        for(let i=1; i<coords.length; i++) {
+            minLng = Math.min(minLng, coords[i][0]); minLat = Math.min(minLat, coords[i][1]);
+            maxLng = Math.max(maxLng, coords[i][0]); maxLat = Math.max(maxLat, coords[i][1]);
+        }
+        return [parseFloat(minLng.toFixed(6)), parseFloat(minLat.toFixed(6)), parseFloat(maxLng.toFixed(6)), parseFloat(maxLat.toFixed(6))];
+    }
 
     let lastCalcTime = 0;
     async function checkLocalRegion(lat, lng) {
@@ -230,7 +240,14 @@ button:active { transform: scale(0.92); }
         if(!coordsArray || coordsArray.length === 0) return;
         let simplifiedCoords = coordsArray;
         if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
-        const trackRecord = { id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), timestamp: Date.now(), source: trackSource, brushRadiusKm: brushRadiusKm, encodedPath: PolylineUtil.encode(simplifiedCoords) };
+        const trackRecord = { 
+            id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), 
+            timestamp: Date.now(), 
+            source: trackSource, 
+            brushRadiusKm: brushRadiusKm, 
+            encodedPath: PolylineUtil.encode(simplifiedCoords),
+            bbox: getBbox(simplifiedCoords)
+        };
         let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
         mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
         try {
@@ -262,8 +279,29 @@ button:active { transform: scale(0.92); }
 
     async function initData() {
         let loadedData = await DataManager.loadData();
-        if(loadedData && loadedData.version === "1.0.0") { appData = loadedData; if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; } 
-        else if (loadedData && loadedData.fog) { appData.renderCache.globalFog = loadedData.fog; appData.renderCache.dailyExplored = loadedData.daily || {}; try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} appData.metadata.totalAreaKm2 = calcTotalArea(); await DataManager.saveData(appData); } 
+        if(loadedData && (loadedData.version === "1.0.0" || loadedData.version === "2.0.0")) { 
+            appData = loadedData; 
+            if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; 
+            // 如果是 v1.0.0 升级上来的，静默补全 bbox 并升级版本号
+            if(appData.version === "1.0.0") {
+                appData.sourceOfTruth.tracks.forEach(t => {
+                    if(!t.bbox) {
+                        const coords = PolylineUtil.decode(t.encodedPath);
+                        t.bbox = getBbox(coords);
+                    }
+                });
+                appData.version = "2.0.0";
+                await DataManager.saveData(appData);
+            }
+        } 
+        else if (loadedData && loadedData.fog) { 
+            appData.version = "2.0.0";
+            appData.renderCache.globalFog = loadedData.fog; 
+            appData.renderCache.dailyExplored = loadedData.daily || {}; 
+            try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} 
+            appData.metadata.totalAreaKm2 = calcTotalArea(); 
+            await DataManager.saveData(appData); 
+        } 
         else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
         if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
 
@@ -396,11 +434,20 @@ button:active { transform: scale(0.92); }
             else { jsonStr = await file.text(); }
             let parsed = JSON.parse(jsonStr);
             
-            // 确保 parsed 格式统一
+            // 确保 parsed 格式统一 (支持 v1.0.0 到 v2.0.0 的平滑过渡)
             let targetData;
-            if(parsed.version === "1.0.0") { targetData = parsed; }
+            if(parsed.version === "1.0.0" || parsed.version === "2.0.0") { 
+                targetData = parsed; 
+                // 为旧版数据补全 bbox
+                targetData.sourceOfTruth.tracks.forEach(t => {
+                    if(!t.bbox) {
+                        const coords = PolylineUtil.decode(t.encodedPath);
+                        t.bbox = getBbox(coords);
+                    }
+                });
+            }
             else if(parsed.fog) { 
-                targetData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
+                targetData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
                 try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} 
             } else { throw new Error("无效的存档格式"); }
 
@@ -439,7 +486,10 @@ button:active { transform: scale(0.92); }
                     if(coords.length > 2) {
                         const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
                         coords = line.geometry.coordinates;
-                        track.encodedPath = PolylineUtil.encode(coords); // 更新压缩后的路径
+                        track.encodedPath = PolylineUtil.encode(coords); 
+                        track.bbox = getBbox(coords); // 重新计算简化后的 bbox
+                    } else {
+                        track.bbox = getBbox(coords); // 补全 bbox
                     }
 
                     // B. 空间增量判定 (是否点亮了新区域)
