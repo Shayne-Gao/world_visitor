@@ -127,11 +127,31 @@ button:active { transform: scale(0.92); }
 
 <script>
     const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
-    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:18});
-    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18});
-    let currentMapLayer = satelliteLayer; currentMapLayer.addTo(map);
+    
+    // 图层源定义
+    const mapLayers = [
+        { name: "卫星 (ArcGIS)", layer: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}) },
+        { name: "街道 (OSM)", layer: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}) },
+        { name: "卫星 (Google)", layer: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}) },
+        { name: "街道 (Google)", layer: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}) }
+    ];
+    
+    let currentLayerIndex = 0;
+    let currentMapLayer = mapLayers[currentLayerIndex].layer; 
+    currentMapLayer.addTo(map);
 
-    document.getElementById('toggleMapBtn').onclick = () => { map.removeLayer(currentMapLayer); currentMapLayer = currentMapLayer === satelliteLayer ? streetLayer : satelliteLayer; currentMapLayer.addTo(map); };
+    document.getElementById('toggleMapBtn').onclick = () => { 
+        map.removeLayer(currentMapLayer); 
+        currentLayerIndex = (currentLayerIndex + 1) % mapLayers.length;
+        currentMapLayer = mapLayers[currentLayerIndex].layer; 
+        currentMapLayer.addTo(map); 
+        
+        // 简易提示当前图层
+        const btn = document.getElementById('toggleMapBtn');
+        const oldHtml = btn.innerHTML;
+        btn.innerHTML = `<span style="font-size:10px;">${mapLayers[currentLayerIndex].name.split(' ')[0]}</span>`;
+        setTimeout(() => btn.innerHTML = oldHtml, 1500);
+    };
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
     document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
 

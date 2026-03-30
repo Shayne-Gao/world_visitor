@@ -7,6 +7,7 @@
 
 ## 2. 核心架构决策 (Architecture)
 * **基础渲染与计算**：`Leaflet.js` (DOM/SVG 渲染底座) + `Turf.js` (核心空间几何布尔运算：`union`, `difference`, `intersect`)。
+    * **多图层支持**：内置 ArcGIS 卫星图、OSM 街道图、Google 卫星图、Google 街道图，支持循环切换。
 * **异步存储引擎**：严禁使用同步阻塞的 `LocalStorage`，强制使用基于 `localforage` 封装的异步 `IndexedDB`，保障 UI 主线程绝对不卡顿。
 * **CQRS 双轨数据模型** (最核心)：
     * `sourceOfTruth` (Schema v2.0.0)：本源数据库。只进不出，永久且无损地保存原始 `Track` 记录。
