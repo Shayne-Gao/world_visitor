@@ -41,6 +41,10 @@ button:active { transform: scale(0.92); }
 .brush-btn.active { background: #28a745; color: white; }
 .undo-btn { background: #ffc107; color: #000; font-size: 18px; }
 
+.pill-btn { border-radius: 22px; background: rgba(255,255,255,0.95); padding: 8px 16px; font-size: 13px; font-weight: bold; color: #007bff; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); cursor: pointer; border: none; }
+.pill-btn:hover { background: #fff; transform: translateY(-2px); }
+.pill-btn:active { transform: translateY(1px); }
+
 #timelineContainer { position: absolute; bottom: 90px; right: 74px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 10px 15px; border-radius: 15px; width: 240px; display: flex; flex-direction: column; gap: 8px; align-items: center; transform: translateX(100%); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease; pointer-events: none; }
 #timelineContainer.expanded { transform: translateX(0); opacity: 1; pointer-events: auto; }
 #timelineLabel { font-size: 12px; font-weight: bold; color: #444; }
@@ -113,7 +117,7 @@ button:active { transform: scale(0.92); }
         <button id="autoRecordBtn" class="icon-btn btn-shadow" style="color:#28a745; font-size:18px;" title="自动探索"><i class="fa-solid fa-person-walking"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
         <button id="toggleMapTypeBtn" class="icon-btn btn-shadow" title="切换卫星/街道"><i class="fa-solid fa-layer-group"></i></button>
-        <button id="toggleMapSourceBtn" class="icon-btn btn-shadow" title="切换数据源" style="font-size:12px; font-weight:bold; color:#007bff;">ArcGIS</button>
+        <button id="toggleMapSourceBtn" class="pill-btn" title="切换数据源"><i class="fa-solid fa-satellite-dish"></i> <span>ArcGIS</span></button>
         <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
     </div>
 </div>
@@ -156,7 +160,9 @@ button:active { transform: scale(0.92); }
         
         currentMapLayer = mapSources[currentMapType][currentMapSource]; 
         currentMapLayer.addTo(map); 
-        document.getElementById('toggleMapSourceBtn').innerText = currentMapSource;
+        
+        const sourceBtn = document.getElementById('toggleMapSourceBtn');
+        sourceBtn.innerHTML = currentMapType === 'satellite' ? `<i class="fa-solid fa-satellite-dish"></i> <span>${currentMapSource}</span>` : `<i class="fa-solid fa-map-location-dot"></i> <span>${currentMapSource}</span>`;
     };
 
     // 切换 数据源 (Google vs 其他)
@@ -169,7 +175,9 @@ button:active { transform: scale(0.92); }
         }
         currentMapLayer = mapSources[currentMapType][currentMapSource]; 
         currentMapLayer.addTo(map); 
-        document.getElementById('toggleMapSourceBtn').innerText = currentMapSource;
+        
+        const sourceBtn = document.getElementById('toggleMapSourceBtn');
+        sourceBtn.innerHTML = currentMapType === 'satellite' ? `<i class="fa-solid fa-satellite-dish"></i> <span>${currentMapSource}</span>` : `<i class="fa-solid fa-map-location-dot"></i> <span>${currentMapSource}</span>`;
     };
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
     document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
