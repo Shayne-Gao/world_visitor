@@ -112,7 +112,8 @@ button:active { transform: scale(0.92); }
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="autoRecordBtn" class="icon-btn btn-shadow" style="color:#28a745; font-size:18px;" title="自动探索"><i class="fa-solid fa-person-walking"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
-        <button id="toggleMapBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-layer-group"></i></button>
+        <button id="toggleMapTypeBtn" class="icon-btn btn-shadow" title="切换卫星/街道"><i class="fa-solid fa-layer-group"></i></button>
+        <button id="toggleMapSourceBtn" class="icon-btn btn-shadow" title="切换数据源" style="font-size:12px; font-weight:bold; color:#007bff;">ArcGIS</button>
         <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
     </div>
 </div>
@@ -128,29 +129,47 @@ button:active { transform: scale(0.92); }
 <script>
     const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
     
-    // 图层源定义
-    const mapLayers = [
-        { name: "卫星 (ArcGIS)", layer: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}) },
-        { name: "街道 (OSM)", layer: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}) },
-        { name: "卫星 (Google)", layer: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}) },
-        { name: "街道 (Google)", layer: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}) }
-    ];
+    // 图层源定义：拆分为 模式(Type) 和 来源(Source)
+    const mapSources = {
+        satellite: {
+            ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
+            Google: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+        },
+        street: {
+            OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
+            Google: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+        }
+    };
     
-    let currentLayerIndex = 0;
-    let currentMapLayer = mapLayers[currentLayerIndex].layer; 
+    let currentMapType = 'satellite'; // 'satellite' 或 'street'
+    let currentMapSource = 'ArcGIS';  // 卫星默认 ArcGIS，街道默认 OSM
+    let currentMapLayer = mapSources[currentMapType][currentMapSource]; 
     currentMapLayer.addTo(map);
 
-    document.getElementById('toggleMapBtn').onclick = () => { 
+    // 切换 卫星/街道
+    document.getElementById('toggleMapTypeBtn').onclick = () => { 
         map.removeLayer(currentMapLayer); 
-        currentLayerIndex = (currentLayerIndex + 1) % mapLayers.length;
-        currentMapLayer = mapLayers[currentLayerIndex].layer; 
-        currentMapLayer.addTo(map); 
+        currentMapType = currentMapType === 'satellite' ? 'street' : 'satellite';
+        // 自动适配默认来源
+        if(currentMapType === 'satellite' && currentMapSource === 'OSM') currentMapSource = 'ArcGIS';
+        if(currentMapType === 'street' && currentMapSource === 'ArcGIS') currentMapSource = 'OSM';
         
-        // 简易提示当前图层
-        const btn = document.getElementById('toggleMapBtn');
-        const oldHtml = btn.innerHTML;
-        btn.innerHTML = `<span style="font-size:10px;">${mapLayers[currentLayerIndex].name.split(' ')[0]}</span>`;
-        setTimeout(() => btn.innerHTML = oldHtml, 1500);
+        currentMapLayer = mapSources[currentMapType][currentMapSource]; 
+        currentMapLayer.addTo(map); 
+        document.getElementById('toggleMapSourceBtn').innerText = currentMapSource;
+    };
+
+    // 切换 数据源 (Google vs 其他)
+    document.getElementById('toggleMapSourceBtn').onclick = () => {
+        map.removeLayer(currentMapLayer); 
+        if (currentMapType === 'satellite') {
+            currentMapSource = currentMapSource === 'ArcGIS' ? 'Google' : 'ArcGIS';
+        } else {
+            currentMapSource = currentMapSource === 'OSM' ? 'Google' : 'OSM';
+        }
+        currentMapLayer = mapSources[currentMapType][currentMapSource]; 
+        currentMapLayer.addTo(map); 
+        document.getElementById('toggleMapSourceBtn').innerText = currentMapSource;
     };
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
     document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
