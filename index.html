@@ -171,7 +171,8 @@ button:active { transform: scale(0.92); }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 
 <script>
-    const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
+    // 恢复 PC 端拖拽默认配置
+    const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
     
     // 图层源定义：包含 5 种模式
     const mapSources = {
@@ -409,25 +410,27 @@ button:active { transform: scale(0.92); }
         else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
         if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
 
-        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); if(!isMobile) map.dragging.disable();
+        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); 
         
         // 启动时触发一次断线恢复检查
         await recoverDraft();
     }
     localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
 
-    function updateCursor() { if (!isEditMode) { document.getElementById('map').style.cursor = ''; return; } let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; }
+    function updateCursor() { 
+        if (!isEditMode) { 
+            document.getElementById('map').style.cursor = 'grab'; 
+            return; 
+        } 
+        let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); 
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; 
+        document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; 
+    }
     map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
 
     const showTodayBtn = document.getElementById('showTodayBtn'); showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; updateMainBtnUI(); renderLayers(); };
     const markTools = document.getElementById('markTools');
-    mainToggle.onclick = () => {
-        if(isAutoRecording) return alert("请先停止当前的自动探索");
-        isEditMode = !isEditMode; updateMainBtnUI();
-        if(isEditMode) { markTools.classList.remove('hidden'); showTodayBtn.classList.remove('hidden'); document.getElementById('searchContainer').classList.remove('hidden'); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); document.getElementById('toggleTimelineBtn').style.color = '#007bff'; viewTimelineExpanded = false; if(isMobile) map.dragging.disable(); } 
-        else { markTools.classList.add('hidden'); showTodayBtn.classList.add('hidden'); document.getElementById('searchContainer').classList.add('hidden'); viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; buildTimeline(); if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); if(isMobile) map.dragging.enable(); }
-        document.getElementById('subMenu').classList.add('hidden'); renderLayers(); updateCursor();
-    };
+    // 删除旧的 mainToggle.onclick 逻辑
 
     document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
     document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
@@ -547,10 +550,10 @@ button:active { transform: scale(0.92); }
             if (isEditMode) {
                 startDraw(map.mouseEventToLatLng(e)); 
             } else {
-                isDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing';
+                isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
             }
         } else if (e.button === 2) { 
-            e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; mc.style.cursor = 'grabbing'; 
+            e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing'; 
         } 
     });
 
@@ -559,6 +562,7 @@ button:active { transform: scale(0.92); }
             moveDraw(map.mouseEventToLatLng(e)); 
         } else if (isDragging || isRightDragging) { 
             const dx = e.clientX - lastX; const dy = e.clientY - lastY; 
+            // 修复拖拽逻辑：使用 map.panBy 时需要注意性能，如果是大范围拖拽建议调整参数
             map.panBy([-dx, -dy], {animate: false}); lastX = e.clientX; lastY = e.clientY; 
         } 
     });
