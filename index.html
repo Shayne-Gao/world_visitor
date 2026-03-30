@@ -50,12 +50,32 @@ button:active { transform: scale(0.92); }
 #timelineLabel { font-size: 12px; font-weight: bold; color: #444; }
 #timelineSlider { width: 100%; accent-color: #007bff; margin: 0; cursor: pointer; }
 
-#mainToggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #fff; color: #333; font-size: 14px; font-weight: 600; padding: 10px 24px; border-radius: 30px; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #eaeaea; transition: all 0.3s ease; }
-#mainToggle i { color: #007bff; font-size: 15px; transition: color 0.3s ease; }
-#mainToggle:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.2); transform: translateX(-50%) translateY(-2px); }
-#mainToggle:active { transform: translateX(-50%) translateY(1px); box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-#mainToggle.active { background: #dc3545; color: #fff; border-color: #dc3545; }
-#mainToggle.active i { color: #fff; }
+#mainToggleContainer { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; border-radius: 30px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border: 1px solid #eaeaea; background: #fff; overflow: hidden; transition: all 0.3s ease; }
+#mainToggleContainer:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.2); transform: translateX(-50%) translateY(-2px); }
+
+.split-btn { background: transparent; border: none; padding: 10px 0; font-size: 14px; font-weight: 600; color: #333; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.split-btn i { font-size: 15px; }
+
+/* 70% 自动追踪区域 */
+#autoTrackBtn { width: 140px; border-right: 1px solid #eaeaea; }
+#autoTrackBtn i { color: #28a745; }
+#autoTrackBtn:hover { background: #f8f9fa; }
+#autoTrackBtn:active { background: #e9ecef; }
+
+/* 30% 手动标记区域 */
+#manualDrawBtn { width: 80px; }
+#manualDrawBtn i { color: #007bff; }
+#manualDrawBtn:hover { background: #f8f9fa; }
+#manualDrawBtn:active { background: #e9ecef; }
+
+/* 统一的结束按钮状态 (占满100%) */
+#endActionBtn { width: 220px; background: #dc3545; color: white; display: none; }
+#endActionBtn i { color: white; }
+#endActionBtn:hover { background: #c82333; }
+
+#mainToggleContainer.is-active #autoTrackBtn, #mainToggleContainer.is-active #manualDrawBtn { display: none; }
+#mainToggleContainer.is-active #endActionBtn { display: flex; }
+#mainToggleContainer.is-active { border-color: #dc3545; }
 
 #searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
@@ -65,6 +85,12 @@ button:active { transform: scale(0.92); }
 
 @media (max-width: 650px) {
     #statsPanel { top: 10px; left: 10px; min-width: 135px; padding: 10px 12px; }
+    #statsPanel.minimized { width: 44px; min-width: unset; height: 44px; padding: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
+    #statsPanel.minimized #statsHeader span { display: none; }
+    #statsPanel.minimized #statsToggleBtn { display: none; }
+    #statsPanel.minimized #statsContent { display: none; }
+    #statsPanel.minimized::before { content: '\f0ac'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: #007bff; font-size: 18px; }
+
     #topRightArea { top: 10px; right: 10px; }
     .icon-btn { width: 38px; height: 38px; font-size: 16px; }
     #subMenu { top: 48px; }
@@ -114,17 +140,31 @@ button:active { transform: scale(0.92); }
     <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn" data-size="0.02">小</button><button class="brush-btn active" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
     <div id="baseTools">
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
-        <button id="autoRecordBtn" class="icon-btn btn-shadow" style="color:#28a745; font-size:18px;" title="自动探索"><i class="fa-solid fa-person-walking"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
-        <button id="toggleMapTypeBtn" class="icon-btn btn-shadow" title="切换卫星/街道"><i class="fa-solid fa-layer-group"></i></button>
-        <button id="toggleMapSourceBtn" class="pill-btn" title="切换数据源"><i class="fa-solid fa-satellite-dish"></i> <span>ArcGIS</span></button>
+        
+        <div style="position: relative;">
+            <button id="layerMenuBtn" class="icon-btn btn-shadow" title="切换图层"><i class="fa-solid fa-layer-group"></i></button>
+            <div id="layerSubMenu" class="btn-shadow hidden" style="position: absolute; right: 50px; bottom: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 140px; backdrop-filter: blur(8px);">
+                <button class="sub-btn layer-opt" data-layer="google-satellite"><i class="fa-solid fa-satellite-dish" style="color:#4285F4"></i> 谷歌卫星</button>
+                <button class="sub-btn layer-opt" data-layer="google-hybrid"><i class="fa-solid fa-map-location-dot" style="color:#34A853"></i> 谷歌混合</button>
+                <button class="sub-btn layer-opt" data-layer="google-street"><i class="fa-solid fa-road" style="color:#FBBC05"></i> 谷歌街道</button>
+                <div style="height:1px; background:#ddd; margin: 2px 0;"></div>
+                <button class="sub-btn layer-opt" data-layer="arcgis-satellite"><i class="fa-solid fa-satellite" style="color:#666"></i> ArcGIS 卫星</button>
+                <button class="sub-btn layer-opt" data-layer="osm-street"><i class="fa-solid fa-street-view" style="color:#666"></i> OSM 街道</button>
+            </div>
+        </div>
+
         <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
     </div>
 </div>
 
 <div id="timelineContainer" class="btn-shadow"><div id="timelineLabel">时光机进度</div><input type="range" id="timelineSlider" min="0" max="0" value="0"></div>
 
-<button id="mainToggle" class="btn-shadow"><i class="fa-solid fa-pen"></i> 开始标记</button>
+<div id="mainToggleContainer" class="btn-shadow">
+    <button id="autoTrackBtn" class="split-btn"><i class="fa-solid fa-person-walking"></i> 自动追踪</button>
+    <button id="manualDrawBtn" class="split-btn"><i class="fa-solid fa-pen"></i> 标记</button>
+    <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成</button>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
@@ -133,52 +173,49 @@ button:active { transform: scale(0.92); }
 <script>
     const map = L.map('map', {zoomControl: false, tap: false}).setView([1.3521, 103.8198], 15);
     
-    // 图层源定义：拆分为 模式(Type) 和 来源(Source)
+    // 图层源定义：包含 5 种模式
     const mapSources = {
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
-            Google: L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+            GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            GoogleHybrid: L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
         },
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
-            Google: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
         }
     };
     
-    let currentMapType = 'satellite'; // 'satellite' 或 'street'
-    let currentMapSource = 'ArcGIS';  // 卫星默认 ArcGIS，街道默认 OSM
-    let currentMapLayer = mapSources[currentMapType][currentMapSource]; 
+    let currentLayerKey = 'arcgis-satellite';
+    let currentMapLayer = mapSources.satellite.ArcGIS;
     currentMapLayer.addTo(map);
 
-    // 切换 卫星/街道
-    document.getElementById('toggleMapTypeBtn').onclick = () => { 
-        map.removeLayer(currentMapLayer); 
-        currentMapType = currentMapType === 'satellite' ? 'street' : 'satellite';
-        // 自动适配默认来源
-        if(currentMapType === 'satellite' && currentMapSource === 'OSM') currentMapSource = 'ArcGIS';
-        if(currentMapType === 'street' && currentMapSource === 'ArcGIS') currentMapSource = 'OSM';
-        
-        currentMapLayer = mapSources[currentMapType][currentMapSource]; 
-        currentMapLayer.addTo(map); 
-        
-        const sourceBtn = document.getElementById('toggleMapSourceBtn');
-        sourceBtn.innerHTML = currentMapType === 'satellite' ? `<i class="fa-solid fa-satellite-dish"></i> <span>${currentMapSource}</span>` : `<i class="fa-solid fa-map-location-dot"></i> <span>${currentMapSource}</span>`;
+    document.getElementById('layerMenuBtn').onclick = () => {
+        document.getElementById('layerSubMenu').classList.toggle('hidden');
     };
 
-    // 切换 数据源 (Google vs 其他)
-    document.getElementById('toggleMapSourceBtn').onclick = () => {
-        map.removeLayer(currentMapLayer); 
-        if (currentMapType === 'satellite') {
-            currentMapSource = currentMapSource === 'ArcGIS' ? 'Google' : 'ArcGIS';
-        } else {
-            currentMapSource = currentMapSource === 'OSM' ? 'Google' : 'OSM';
-        }
-        currentMapLayer = mapSources[currentMapType][currentMapSource]; 
-        currentMapLayer.addTo(map); 
-        
-        const sourceBtn = document.getElementById('toggleMapSourceBtn');
-        sourceBtn.innerHTML = currentMapType === 'satellite' ? `<i class="fa-solid fa-satellite-dish"></i> <span>${currentMapSource}</span>` : `<i class="fa-solid fa-map-location-dot"></i> <span>${currentMapSource}</span>`;
-    };
+    document.querySelectorAll('.layer-opt').forEach(btn => {
+        btn.onclick = (e) => {
+            const layerKey = e.currentTarget.getAttribute('data-layer');
+            if(layerKey === currentLayerKey) return;
+            
+            map.removeLayer(currentMapLayer);
+            if(layerKey === 'google-satellite') currentMapLayer = mapSources.satellite.GoogleSatellite;
+            else if(layerKey === 'google-hybrid') currentMapLayer = mapSources.satellite.GoogleHybrid;
+            else if(layerKey === 'google-street') currentMapLayer = mapSources.street.GoogleStreet;
+            else if(layerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
+            else if(layerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
+            
+            currentMapLayer.addTo(map);
+            currentLayerKey = layerKey;
+            
+            // 更新选中状态 UI
+            document.querySelectorAll('.layer-opt').forEach(b => b.style.background = 'transparent');
+            e.currentTarget.style.background = '#e9ecef';
+            document.getElementById('layerSubMenu').classList.add('hidden');
+        };
+    });
+
     document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
     document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
 
@@ -271,17 +308,36 @@ button:active { transform: scale(0.92); }
     document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
     let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
     const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    const mainToggle = document.getElementById('mainToggle');
+    const mainToggleContainer = document.getElementById('mainToggleContainer');
 
     function updateMainBtnUI(stateOverride) {
-        if (stateOverride === 'locating') { mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
-        if (stateOverride === 'processing') { mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
-        if (stateOverride === 'error') { mainToggle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
-        if (stateOverride === 'recording') { mainToggle.innerHTML = '<i class="fa-solid fa-person-walking"></i> 自动探索中 (屏幕常亮)'; mainToggle.className = 'btn-shadow active'; return; }
+        if (stateOverride === 'locating') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
+        if (stateOverride === 'processing') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
+        if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
+        if (stateOverride === 'recording') { 
+            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-person-walking"></i> 结束追踪 (屏幕常亮)'; 
+            mainToggleContainer.classList.add('is-active'); 
+            return; 
+        }
         
-        if (!isEditMode) { mainToggle.innerHTML = '<i class="fa-solid fa-pen"></i> 开始标记'; mainToggle.className = 'btn-shadow'; } 
-        else { mainToggle.innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; mainToggle.className = 'btn-shadow active'; }
+        if (!isEditMode && !isAutoRecording) { 
+            mainToggleContainer.classList.remove('is-active'); 
+            if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
+        } else if (isEditMode) { 
+            document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
+            mainToggleContainer.classList.add('is-active'); 
+            if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
+        }
     }
+
+    // 绑定最小化面板的点击恢复事件
+    document.getElementById('statsPanel').addEventListener('click', function(e) {
+        if(this.classList.contains('minimized') && e.target === this) {
+            // 如果用户主动点击了最小化的地球图标，允许临时展开查看
+            this.classList.remove('minimized');
+            setTimeout(() => { if(isEditMode && isMobile) this.classList.add('minimized'); }, 3000); // 3秒后自动缩回
+        }
+    });
 
     // 【核心新增：将Turf解雾逻辑抽离，供手动和自动共享】
     async function processTrackAndSave(coordsArray, trackSource = 'web_draw') {
@@ -389,15 +445,67 @@ button:active { transform: scale(0.92); }
 
     // 【新增核心功能：全自动探索模式】
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
-    document.getElementById('autoRecordBtn').onclick = async () => {
+    
+    document.getElementById('autoTrackBtn').onclick = async () => {
         if(isEditMode) return alert("请先关闭手动标记模式");
-        const btn = document.getElementById('autoRecordBtn');
+        if (isAutoRecording) return; // 不可能，已被隐藏
+        
+        // 开始记录
+        if(!navigator.geolocation) return alert("当前环境不支持定位");
+        isAutoRecording = true; livePath = [];
+        try { if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){ console.warn('唤醒锁不可用'); }
+        updateMainBtnUI('recording');
+        
+        watchId = navigator.geolocation.watchPosition(
+            async (pos) => {
+                if (pos.coords.accuracy > 30) return; // 精度太低过滤
+                const lat = pos.coords.latitude, lng = pos.coords.longitude, currentLatLng = L.latLng(lat, lng);
+                
+                if (livePath.length > 0) {
+                    const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
+                    if (currentLatLng.distanceTo(lastLatLng) < 10) return; // 距离小于 10 米过滤，防原地漂移
+                }
+                
+                livePath.push([lng, lat]);
+                // 实时在地图上绘制虚线草稿
+                if (!livePolyline) {
+                    let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                    livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                } else { livePolyline.addLatLng([lat, lng]); }
+                map.panTo([lat, lng]);
+                
+                // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
+                await localforage.setItem(DRAFT_KEY, livePath); 
+            },
+            (err) => { console.warn(err); },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
+    document.getElementById('manualDrawBtn').onclick = () => {
+        if(isAutoRecording) return alert("请先停止当前的自动探索");
+        isEditMode = true; 
+        updateMainBtnUI();
+        
+        markTools.classList.remove('hidden'); 
+        showTodayBtn.classList.remove('hidden'); 
+        document.getElementById('searchContainer').classList.remove('hidden'); 
+        document.getElementById('toggleTimelineBtn').classList.add('hidden'); 
+        document.getElementById('timelineContainer').classList.remove('expanded'); 
+        document.getElementById('toggleTimelineBtn').style.color = '#007bff'; 
+        viewTimelineExpanded = false; 
+        if(isMobile) { map.dragging.disable(); document.getElementById('statsPanel').classList.add('minimized'); }
+        
+        document.getElementById('subMenu').classList.add('hidden'); 
+        renderLayers(); updateCursor();
+    };
+
+    document.getElementById('endActionBtn').onclick = async () => {
         if (isAutoRecording) {
             // 停止记录并结算
             isAutoRecording = false;
             if(watchId) navigator.geolocation.clearWatch(watchId);
             if(wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
-            btn.innerHTML = '<i class="fa-solid fa-person-walking"></i>'; btn.style.color = '#28a745';
             
             if (livePath.length > 0) {
                 updateMainBtnUI('processing');
@@ -406,38 +514,20 @@ button:active { transform: scale(0.92); }
             }
             if(livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
             livePath = []; updateMainBtnUI();
-        } else {
-            // 开始记录
-            if(!navigator.geolocation) return alert("当前环境不支持定位");
-            isAutoRecording = true; livePath = [];
-            try { if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){ console.warn('唤醒锁不可用'); }
-            btn.innerHTML = '<i class="fa-solid fa-stop"></i>'; btn.style.color = '#dc3545';
-            updateMainBtnUI('recording');
+        } else if (isEditMode) {
+            // 结束手动标记
+            isEditMode = false; 
+            updateMainBtnUI();
             
-            watchId = navigator.geolocation.watchPosition(
-                async (pos) => {
-                    if (pos.coords.accuracy > 30) return; // 精度太低过滤
-                    const lat = pos.coords.latitude, lng = pos.coords.longitude, currentLatLng = L.latLng(lat, lng);
-                    
-                    if (livePath.length > 0) {
-                        const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
-                        if (currentLatLng.distanceTo(lastLatLng) < 10) return; // 距离小于 10 米过滤，防原地漂移
-                    }
-                    
-                    livePath.push([lng, lat]);
-                    // 实时在地图上绘制虚线草稿
-                    if (!livePolyline) {
-                        let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
-                        livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
-                    } else { livePolyline.addLatLng([lat, lng]); }
-                    map.panTo([lat, lng]);
-                    
-                    // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
-                    await localforage.setItem(DRAFT_KEY, livePath); 
-                },
-                (err) => { console.warn(err); },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-            );
+            markTools.classList.add('hidden'); 
+            showTodayBtn.classList.add('hidden'); 
+            document.getElementById('searchContainer').classList.add('hidden'); 
+            viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; 
+            buildTimeline(); 
+            if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); 
+            if(isMobile) { map.dragging.enable(); document.getElementById('statsPanel').classList.remove('minimized'); }
+            
+            renderLayers(); updateCursor();
         }
     };
 
