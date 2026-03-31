@@ -187,9 +187,12 @@ button:active { transform: scale(0.92); }
         }
     };
     
-    let currentLayerKey = 'arcgis-satellite';
-    let currentMapLayer = mapSources.satellite.ArcGIS;
+    let currentLayerKey = 'google-hybrid';
+    let currentMapLayer = mapSources.satellite.GoogleHybrid;
     currentMapLayer.addTo(map);
+
+    // 初始化时高亮默认图层按钮
+    document.querySelector('.layer-opt[data-layer="google-hybrid"]').style.background = '#e9ecef';
 
     document.getElementById('layerMenuBtn').onclick = () => {
         document.getElementById('layerSubMenu').classList.toggle('hidden');
@@ -444,7 +447,7 @@ button:active { transform: scale(0.92); }
             }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
-    document.getElementById('locateBtn').onclick = locateMe; setTimeout(locateMe, 500);
+    document.getElementById('locateBtn').onclick = locateMe; 
 
     // 【新增核心功能：全自动探索模式】
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
