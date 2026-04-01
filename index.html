@@ -415,6 +415,24 @@ button:active { transform: scale(0.92); }
 
         updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); 
         
+        // 启动时设置地图中心为最后一次的记录点
+        if (appData.sourceOfTruth && appData.sourceOfTruth.tracks && appData.sourceOfTruth.tracks.length > 0) {
+            const tracks = appData.sourceOfTruth.tracks;
+            // 找到时间戳最新的轨迹
+            let latestTrack = tracks[0];
+            for (let i = 1; i < tracks.length; i++) {
+                if (tracks[i].timestamp > latestTrack.timestamp) latestTrack = tracks[i];
+            }
+            if (latestTrack && latestTrack.encodedPath) {
+                const coords = PolylineUtil.decode(latestTrack.encodedPath);
+                if (coords && coords.length > 0) {
+                    const lastPt = coords[coords.length - 1];
+                    // 延迟一点点设置，确保地图已经完全初始化
+                    setTimeout(() => map.setView([lastPt[1], lastPt[0]], 15), 100);
+                }
+            }
+        }
+
         // 启动时触发一次断线恢复检查
         await recoverDraft();
     }
