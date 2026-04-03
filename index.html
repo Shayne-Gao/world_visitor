@@ -167,7 +167,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.21 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.22 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -693,10 +693,18 @@ button:active { transform: scale(0.92); }
             document.getElementById('pocketModeOverlay').classList.remove('active');
             document.getElementById('map').style.display = 'block';
             map.invalidateSize(); // 恢复地图渲染
+            
+            // 【关键修复】退出息屏模式后，立刻把这段时间没画的 livePath 画到 Leaflet 地图上
             if(livePath.length > 0) {
+                if (livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+                const latlngs = livePath.map(pt => [pt[1], pt[0]]);
+                let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlngs[0][0] * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                livePolyline = L.polyline(latlngs, {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                
                 const lastPt = livePath[livePath.length-1];
                 map.panTo([lastPt[1], lastPt[0]]);
             }
+            
             thumb.style.transform = `translateX(0px)`;
         }
     });
@@ -709,7 +717,25 @@ button:active { transform: scale(0.92); }
         // 开始记录
         if(!navigator.geolocation) return alert("当前环境不支持定位");
         isAutoRecording = true; livePath = [];
-        try { if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){ console.warn('唤醒锁不可用'); }
+        
+        // 【关键修复】正确监听并处理 Wake Lock 丢失与恢复
+        const requestWakeLock = async () => {
+            try { 
+                if(navigator.wakeLock) {
+                    wakeLock = await navigator.wakeLock.request('screen'); 
+                    console.log('Wake Lock 激活成功');
+                }
+            } catch(e) { console.warn('唤醒锁请求失败:', e); }
+        };
+        await requestWakeLock();
+        
+        // 当页面可见性改变时 (例如从后台切回，或意外息屏被唤醒) 重新申请 Wake Lock
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible' && isAutoRecording) {
+                await requestWakeLock();
+            }
+        });
+
         updateMainBtnUI('recording');
         
         watchId = navigator.geolocation.watchPosition(
