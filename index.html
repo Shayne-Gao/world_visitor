@@ -101,7 +101,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.14 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.15 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -487,7 +487,19 @@ button:active { transform: scale(0.92); }
                 
                 if (livePath.length > 0) {
                     const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
-                    if (currentLatLng.distanceTo(lastLatLng) < 10) return; // 距离小于 10 米过滤，防原地漂移
+                    const dist = currentLatLng.distanceTo(lastLatLng);
+                    
+                    if (dist < 10) return; // 距离小于 10 米过滤，防原地漂移
+                    
+                    // 【防飞线断开逻辑】如果两点之间距离 > 200米，说明中间锁屏断线了
+                    if (dist > 200) {
+                        // 1. 静默结算上一段
+                        await processTrackAndSave(livePath, 'auto_track');
+                        // 2. 清空重新开始新的一段
+                        livePath = [];
+                        if (livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+                        // 注意：这里不需要返回，让新点作为新的 livePath 的起点继续走下去
+                    }
                 }
                 
                 livePath.push([lng, lat]);
