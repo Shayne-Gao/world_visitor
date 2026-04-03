@@ -92,22 +92,24 @@ button:active { transform: scale(0.92); }
 #mainToggleContainer.is-active { border-color: #dc3545; }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
-/* OLED 省电模式 */
+/* OLED 省电模式 (极致暗黑版) */
 #pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
 #pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
 .pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
-.pocket-time { font-size: 18px; color: #777; font-weight: 600; letter-spacing: 1px; }
-.gps-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.pocket-time { font-size: 18px; color: #444; font-weight: normal; letter-spacing: 1px; }
+.gps-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #444; }
 .gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
 .gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
+#pocketGpsDot { background: #005500; box-shadow: none; animation: none; opacity: 0.8; }
+#pocketGpsDot.lost { background: #550000; opacity: 0.8; }
 @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
-.pocket-distance { margin-top: 5vh; font-size: 56px; font-weight: 700; color: #008000; text-shadow: 0 0 25px rgba(0,128,0,0.5); letter-spacing: -1px; }
-.pocket-distance span { font-size: 18px; color: #444; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
-#pocketCanvas { flex: 1; width: 100%; max-height: 45vh; margin: 20px 0; opacity: 0.8; }
-.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #111; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); border: 1px solid #222; }
-.slide-text { color: #444; font-size: 13px; font-weight: 600; letter-spacing: 2px; z-index: 1; pointer-events: none; text-transform: uppercase; }
-.slide-thumb { position: absolute; left: 4px; top: 4px; width: 48px; height: 48px; background: linear-gradient(145deg, #333, #222); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #888; z-index: 2; cursor: pointer; touch-action: none; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-.slide-thumb i { font-size: 18px; text-shadow: 0 -1px 0 rgba(0,0,0,0.8); }
+.pocket-distance { margin-top: 5vh; font-size: 56px; font-weight: normal; color: #005500; text-shadow: none; letter-spacing: -1px; }
+.pocket-distance span { font-size: 18px; color: #333; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
+#pocketCanvas { flex: 1; width: 100%; max-height: 45vh; margin: 20px 0; opacity: 0.3; }
+.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #000; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 1px solid #1a1a1a; }
+.slide-text { color: #333; font-size: 13px; font-weight: normal; letter-spacing: 2px; z-index: 1; pointer-events: none; text-transform: uppercase; }
+.slide-thumb { position: absolute; left: 4px; top: 4px; width: 48px; height: 48px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 1px solid #222; }
+.slide-thumb i { font-size: 18px; text-shadow: none; }
 
 #searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
@@ -573,6 +575,7 @@ button:active { transform: scale(0.92); }
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
     let isPocketMode = false;
     let pocketDistanceKm = 0;
+    let lastPocketCanvasDrawTime = 0;
     
     // 简易 Haversine 距离计算 (避免引入 Turf.js 运算开销)
     function calcDistanceKm(pt1, pt2) {
@@ -594,7 +597,11 @@ button:active { transform: scale(0.92); }
         pocketDistanceKm += distDeltaKm;
         document.getElementById('pocketDistance').innerHTML = pocketDistanceKm.toFixed(2) + ' <span>km</span>';
         
-        // Canvas 简易绘制
+        // Canvas 简易绘制 (节流：每 5 秒最多重绘一次)
+        const nowMs = Date.now();
+        if (nowMs - lastPocketCanvasDrawTime < 5000 && livePath.length > 2) return;
+        lastPocketCanvasDrawTime = nowMs;
+
         const canvas = document.getElementById('pocketCanvas');
         const ctx = canvas.getContext('2d');
         if (livePath.length < 2) return;
