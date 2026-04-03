@@ -5,6 +5,7 @@
 <title>世界迷雾 Web Demo - 自动探索版</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
 <style>
 body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;}
 #map{width:100%;height:100%;background:#000; touch-action:none;}
@@ -92,27 +93,27 @@ button:active { transform: scale(0.92); }
 #mainToggleContainer.is-active { border-color: #dc3545; }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
-/* OLED 省电模式 (极致暗黑版) */
-#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+/* OLED 省电模式 (极致暗黑版 + 像素极客风) */
+#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: 'VT323', monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
 #pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
 .pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
-.pocket-time { font-size: 18px; color: #444; font-weight: normal; letter-spacing: 1px; }
-.gps-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #444; }
-.gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
+.pocket-time { font-size: 28px; color: #555; font-weight: normal; letter-spacing: 2px; }
+.gps-status { display: flex; align-items: center; gap: 8px; font-size: 20px; color: #555; }
+.gps-dot { width: 8px; height: 8px; border-radius: 0; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
 .gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
 #pocketGpsDot { background: #005500; box-shadow: none; animation: none; opacity: 0.8; }
 #pocketGpsDot.lost { background: #550000; opacity: 0.8; }
 @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
-.pocket-distance { margin-top: 2vh; font-size: 56px; font-weight: normal; color: #005500; text-shadow: none; letter-spacing: -1px; }
-.pocket-distance span { font-size: 18px; color: #333; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
-.pocket-sub-stats { display: flex; gap: 30px; margin-top: 10px; color: #444; font-size: 18px; }
-.pocket-sub-stats .sub-stat { display: flex; align-items: baseline; gap: 4px; }
-.pocket-sub-stats small { font-size: 12px; color: #333; }
+.pocket-distance { margin-top: 2vh; font-size: 80px; font-weight: normal; color: #006600; text-shadow: none; letter-spacing: 2px; }
+.pocket-distance span { font-size: 24px; color: #444; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
+.pocket-sub-stats { display: flex; gap: 30px; margin-top: 10px; color: #444; font-size: 28px; }
+.pocket-sub-stats .sub-stat { display: flex; align-items: baseline; gap: 6px; }
+.pocket-sub-stats small { font-size: 18px; color: #333; }
 #pocketCanvas { flex: 1; width: 80%; max-height: 35vh; margin: 15px 0; opacity: 0.2; }
-.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #000; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 1px solid #1a1a1a; }
-.slide-text { color: #333; font-size: 13px; font-weight: normal; letter-spacing: 2px; z-index: 1; pointer-events: none; text-transform: uppercase; }
-.slide-thumb { position: absolute; left: 4px; top: 4px; width: 48px; height: 48px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 1px solid #222; }
-.slide-thumb i { font-size: 18px; text-shadow: none; }
+.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #000; border-radius: 0; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 2px solid #1a1a1a; }
+.slide-text { color: #333; font-size: 18px; font-weight: normal; letter-spacing: 3px; z-index: 1; pointer-events: none; text-transform: uppercase; }
+.slide-thumb { position: absolute; left: 4px; top: 4px; width: 44px; height: 44px; background: #0a0a0a; border-radius: 0; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 2px solid #222; }
+.slide-thumb i { font-size: 20px; text-shadow: none; }
 
 #searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
@@ -166,7 +167,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.20 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.21 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
