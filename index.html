@@ -73,9 +73,38 @@ button:active { transform: scale(0.92); }
 #endActionBtn i { color: white; }
 #endActionBtn:hover { background: #c82333; }
 
+/* 自动追踪时的 3/7 分割状态 */
+#endAutoTrackBtn { width: 154px; background: #dc3545; color: white; display: none; border-right: 1px solid rgba(255,255,255,0.2); }
+#endAutoTrackBtn i { color: white; }
+#endAutoTrackBtn:hover { background: #c82333; }
+
+#pocketModeBtn { width: 66px; background: #343a40; color: white; display: none; }
+#pocketModeBtn i { color: #ffc107; }
+#pocketModeBtn:hover { background: #23272b; }
+
 #mainToggleContainer.is-active #autoTrackBtn, #mainToggleContainer.is-active #manualDrawBtn { display: none; }
 #mainToggleContainer.is-active #endActionBtn { display: flex; }
+#mainToggleContainer.is-active.is-tracking #endActionBtn { display: none; }
+#mainToggleContainer.is-active.is-tracking #endAutoTrackBtn, #mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: flex; }
 #mainToggleContainer.is-active { border-color: #dc3545; }
+#mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
+
+/* OLED 省电模式 */
+#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: ui-monospace, monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+#pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
+.pocket-header { width: 100%; padding: 40px 20px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+.pocket-time { font-size: 16px; color: #aaa; }
+.gps-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
+.gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
+@keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
+.pocket-distance { margin-top: 40px; font-size: 48px; font-weight: bold; color: #008000; text-shadow: 0 0 20px rgba(0,128,0,0.4); }
+.pocket-distance span { font-size: 18px; color: #555; text-shadow: none; font-weight: normal; }
+#pocketCanvas { flex: 1; width: 100%; max-height: 40vh; margin: 20px 0; opacity: 0.8; }
+.slide-to-unlock { width: 80%; height: 50px; background: #1a1a1a; border-radius: 25px; position: relative; margin-bottom: 50px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.slide-text { color: #555; font-size: 14px; font-weight: bold; letter-spacing: 1px; z-index: 1; pointer-events: none; }
+.slide-thumb { position: absolute; left: 4px; top: 4px; width: 42px; height: 42px; background: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #888; z-index: 2; cursor: pointer; touch-action: none; }
+.slide-thumb i { font-size: 16px; }
 
 #searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
@@ -101,7 +130,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.15 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.16 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -164,6 +193,22 @@ button:active { transform: scale(0.92); }
     <button id="autoTrackBtn" class="split-btn"><i class="fa-solid fa-person-walking"></i> 自动追踪</button>
     <button id="manualDrawBtn" class="split-btn"><i class="fa-solid fa-pen"></i> 标记</button>
     <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成</button>
+    
+    <button id="endAutoTrackBtn" class="split-btn"><i class="fa-solid fa-stop"></i> 结束追踪</button>
+    <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i></button>
+</div>
+
+<div id="pocketModeOverlay">
+    <div class="pocket-header">
+        <div class="gps-status"><div id="pocketGpsDot" class="gps-dot"></div> <span id="pocketGpsText">GPS 活跃</span></div>
+        <div id="pocketTime" class="pocket-time">00:00</div>
+    </div>
+    <div id="pocketDistance" class="pocket-distance">0.00 <span>km</span></div>
+    <canvas id="pocketCanvas"></canvas>
+    <div class="slide-to-unlock" id="slideUnlockContainer">
+        <div class="slide-text">&gt;&gt;&gt; 滑动解锁以退出 &gt;&gt;&gt;</div>
+        <div class="slide-thumb" id="slideThumb"><i class="fa-solid fa-lock"></i></div>
+    </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -467,9 +512,112 @@ button:active { transform: scale(0.92); }
     }
     document.getElementById('locateBtn').onclick = locateMe; 
 
-    // 【新增核心功能：全自动探索模式】
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
+    let isPocketMode = false;
+    let pocketDistanceKm = 0;
     
+    // 简易 Haversine 距离计算 (避免引入 Turf.js 运算开销)
+    function calcDistanceKm(pt1, pt2) {
+        const R = 6371; // Earth radius in km
+        const dLat = (pt2[1] - pt1[1]) * Math.PI / 180;
+        const dLng = (pt2[0] - pt1[0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(pt1[1] * Math.PI / 180) * Math.cos(pt2[1] * Math.PI / 180) *
+                  Math.sin(dLng/2) * Math.sin(dLng/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // 更新 Pocket Mode UI 状态
+    function updatePocketUI(lat, lng, distDeltaKm) {
+        if (!isPocketMode) return;
+        const now = new Date();
+        document.getElementById('pocketTime').textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        
+        pocketDistanceKm += distDeltaKm;
+        document.getElementById('pocketDistance').innerHTML = pocketDistanceKm.toFixed(2) + ' <span>km</span>';
+        
+        // Canvas 简易绘制
+        const canvas = document.getElementById('pocketCanvas');
+        const ctx = canvas.getContext('2d');
+        if (livePath.length < 2) return;
+        
+        // 自动适应屏幕尺寸
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        
+        // 找出 bbox
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        livePath.forEach(pt => {
+            minX = Math.min(minX, pt[0]); maxX = Math.max(maxX, pt[0]);
+            minY = Math.min(minY, pt[1]); maxY = Math.max(maxY, pt[1]);
+        });
+        
+        const padding = 20;
+        const scaleX = (canvas.width - padding*2) / (maxX - minX || 1);
+        const scaleY = (canvas.height - padding*2) / (maxY - minY || 1);
+        const scale = Math.min(scaleX, scaleY);
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath();
+        ctx.strokeStyle = '#008000';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        livePath.forEach((pt, i) => {
+            const cx = padding + (pt[0] - minX) * scale;
+            const cy = canvas.height - padding - (pt[1] - minY) * scale; // 纬度反转
+            if(i === 0) ctx.moveTo(cx, cy);
+            else ctx.lineTo(cx, cy);
+        });
+        ctx.stroke();
+    }
+
+    // 进入省电模式
+    document.getElementById('pocketModeBtn').onclick = () => {
+        isPocketMode = true;
+        
+        // 计算当前 livePath 的总距离，作为初始距离
+        pocketDistanceKm = 0;
+        if (livePath.length > 1) {
+            for (let i = 1; i < livePath.length; i++) {
+                pocketDistanceKm += calcDistanceKm(livePath[i-1], livePath[i]);
+            }
+        }
+        
+        document.getElementById('pocketModeOverlay').classList.add('active');
+        document.getElementById('map').style.display = 'none'; // 彻底隐藏地图，停止 Leaflet 渲染
+        updatePocketUI(0, 0, 0);
+    };
+
+    // 滑动解锁退出省电模式
+    const thumb = document.getElementById('slideThumb');
+    const container = document.getElementById('slideUnlockContainer');
+    let isSliding = false, startX = 0;
+    
+    thumb.addEventListener('touchstart', e => { isSliding = true; startX = e.touches[0].clientX; thumb.style.transition = 'none'; });
+    thumb.addEventListener('touchmove', e => {
+        if(!isSliding) return;
+        let dx = e.touches[0].clientX - startX;
+        if(dx < 0) dx = 0;
+        const maxW = container.clientWidth - thumb.clientWidth - 8;
+        if(dx > maxW) dx = maxW;
+        thumb.style.transform = `translateX(${dx}px)`;
+        if(dx >= maxW * 0.95) { // 解锁成功
+            isSliding = false;
+            isPocketMode = false;
+            document.getElementById('pocketModeOverlay').classList.remove('active');
+            document.getElementById('map').style.display = 'block';
+            map.invalidateSize(); // 恢复地图渲染
+            if(livePath.length > 0) {
+                const lastPt = livePath[livePath.length-1];
+                map.panTo([lastPt[1], lastPt[0]]);
+            }
+            thumb.style.transform = `translateX(0px)`;
+        }
+    });
+    thumb.addEventListener('touchend', () => { if(isSliding) { isSliding = false; thumb.style.transition = 'transform 0.3s ease'; thumb.style.transform = `translateX(0px)`; } });
+
     document.getElementById('autoTrackBtn').onclick = async () => {
         if(isEditMode) return alert("请先关闭手动标记模式");
         if (isAutoRecording) return; // 不可能，已被隐藏
@@ -503,19 +651,50 @@ button:active { transform: scale(0.92); }
                 }
                 
                 livePath.push([lng, lat]);
-                // 实时在地图上绘制虚线草稿
-                if (!livePolyline) {
-                    let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
-                    livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
-                } else { livePolyline.addLatLng([lat, lng]); }
-                map.panTo([lat, lng]);
+                
+                if (isPocketMode) {
+                    // 省电模式下：仅更新状态灯、距离和 Canvas，绝对不操作 Leaflet DOM
+                    const distDeltaKm = livePath.length > 1 ? calcDistanceKm(livePath[livePath.length-2], [lng, lat]) : 0;
+                    const dot = document.getElementById('pocketGpsDot');
+                    dot.classList.remove('lost'); 
+                    document.getElementById('pocketGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
+                    updatePocketUI(lat, lng, distDeltaKm);
+                } else {
+                    // 正常模式下：在地图上绘制虚线草稿
+                    if (!livePolyline) {
+                        let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                        livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                    } else { livePolyline.addLatLng([lat, lng]); }
+                    map.panTo([lat, lng]);
+                }
                 
                 // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
                 await localforage.setItem(DRAFT_KEY, livePath); 
             },
-            (err) => { console.warn(err); },
+            (err) => { 
+                console.warn(err); 
+                if (isPocketMode) {
+                    document.getElementById('pocketGpsDot').classList.add('lost');
+                    document.getElementById('pocketGpsText').textContent = 'GPS 丢失';
+                }
+            },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
+    };
+
+    document.getElementById('endAutoTrackBtn').onclick = async () => {
+        // 停止记录并结算
+        isAutoRecording = false;
+        if(watchId) navigator.geolocation.clearWatch(watchId);
+        if(wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
+        
+        if (livePath.length > 0) {
+            updateMainBtnUI('processing');
+            await processTrackAndSave(livePath, 'auto_track');
+            await localforage.removeItem(DRAFT_KEY); // 结算成功，清空幽灵草稿
+        }
+        if(livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+        livePath = []; updateMainBtnUI();
     };
 
     document.getElementById('manualDrawBtn').onclick = () => {
@@ -537,20 +716,7 @@ button:active { transform: scale(0.92); }
     };
 
     document.getElementById('endActionBtn').onclick = async () => {
-        if (isAutoRecording) {
-            // 停止记录并结算
-            isAutoRecording = false;
-            if(watchId) navigator.geolocation.clearWatch(watchId);
-            if(wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
-            
-            if (livePath.length > 0) {
-                updateMainBtnUI('processing');
-                await processTrackAndSave(livePath, 'auto_track');
-                await localforage.removeItem(DRAFT_KEY); // 结算成功，清空幽灵草稿
-            }
-            if(livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
-            livePath = []; updateMainBtnUI();
-        } else if (isEditMode) {
+        if (isEditMode) {
             // 结束手动标记
             isEditMode = false; 
             updateMainBtnUI();
