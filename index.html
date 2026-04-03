@@ -124,13 +124,41 @@ button:active { transform: scale(0.92); }
     .icon-btn { width: 38px; height: 38px; font-size: 16px; }
     #subMenu { top: 48px; }
     .stat-row { gap: 12px; }
+
+    #timelineContainer { bottom: 150px; right: 65px; width: 200px; transform: translateX(120%); }
+    #timelineContainer.expanded { transform: translateX(0); }
+}
+
+/* 谷歌地图风格的当前位置定位点 */
+.gps-location-marker {
+    width: 14px;
+    height: 14px;
+    background-color: #4285F4;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4);
+    position: relative;
+}
+.gps-location-marker::after {
+    content: '';
+    position: absolute;
+    top: -2px; left: -2px;
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    border: 2px solid #4285F4;
+    animation: gps-pulse 2s infinite;
+    opacity: 0;
+}
+@keyframes gps-pulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(3); opacity: 0; }
 }
 </style>
 </head>
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.16 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.17 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -218,6 +246,17 @@ button:active { transform: scale(0.92); }
 <script>
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
+    
+    // 全局当前位置标识点
+    let currentLocationMarker = null;
+    function updateCurrentLocationMarker(lat, lng) {
+        if (!currentLocationMarker) {
+            const icon = L.divIcon({ className: 'gps-location-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
+            currentLocationMarker = L.marker([lat, lng], {icon: icon, zIndexOffset: 1000}).addTo(map);
+        } else {
+            currentLocationMarker.setLatLng([lat, lng]);
+        }
+    }
     
     // 图层源定义：包含 5 种模式
     const mapSources = {
@@ -505,7 +544,10 @@ button:active { transform: scale(0.92); }
         if(navigator.geolocation) {
             updateMainBtnUI('locating');
             navigator.geolocation.getCurrentPosition(pos => {
-                let lat = pos.coords.latitude, lng = pos.coords.longitude; map.flyTo([lat, lng], 16); updateMainBtnUI();
+                let lat = pos.coords.latitude, lng = pos.coords.longitude; 
+                map.flyTo([lat, lng], 16); 
+                updateCurrentLocationMarker(lat, lng);
+                updateMainBtnUI();
                 currentPath = [[lng, lat]]; endDraw(true); 
             }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
@@ -633,6 +675,8 @@ button:active { transform: scale(0.92); }
                 if (pos.coords.accuracy > 30) return; // 精度太低过滤
                 const lat = pos.coords.latitude, lng = pos.coords.longitude, currentLatLng = L.latLng(lat, lng);
                 
+                updateCurrentLocationMarker(lat, lng);
+
                 if (livePath.length > 0) {
                     const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
                     const dist = currentLatLng.distanceTo(lastLatLng);
