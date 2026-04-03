@@ -25,6 +25,9 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
+#trackingStatusPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 10px 16px; border-radius: 20px; color: #fff; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
+#trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; }
+
 #topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
 .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
@@ -74,12 +77,12 @@ button:active { transform: scale(0.92); }
 #endActionBtn:hover { background: #c82333; }
 
 /* 自动追踪时的 3/7 分割状态 */
-#endAutoTrackBtn { width: 154px; background: #dc3545; color: white; display: none; border-right: 1px solid rgba(255,255,255,0.2); }
+#endAutoTrackBtn { width: 140px; background: #dc3545; color: white; display: none; border-right: 1px solid rgba(255,255,255,0.2); }
 #endAutoTrackBtn i { color: white; }
 #endAutoTrackBtn:hover { background: #c82333; }
 
-#pocketModeBtn { width: 66px; background: #343a40; color: white; display: none; }
-#pocketModeBtn i { color: #ffc107; }
+#pocketModeBtn { width: 80px; background: #343a40; color: #f8f9fa; display: none; font-size: 13px; }
+#pocketModeBtn i { color: #ffc107; margin-right: 2px; }
 #pocketModeBtn:hover { background: #23272b; }
 
 #mainToggleContainer.is-active #autoTrackBtn, #mainToggleContainer.is-active #manualDrawBtn { display: none; }
@@ -90,21 +93,21 @@ button:active { transform: scale(0.92); }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
 /* OLED 省电模式 */
-#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: ui-monospace, monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
 #pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
-.pocket-header { width: 100%; padding: 40px 20px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
-.pocket-time { font-size: 16px; color: #aaa; }
+.pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+.pocket-time { font-size: 18px; color: #777; font-weight: 600; letter-spacing: 1px; }
 .gps-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
 .gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
 .gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
 @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
-.pocket-distance { margin-top: 40px; font-size: 48px; font-weight: bold; color: #008000; text-shadow: 0 0 20px rgba(0,128,0,0.4); }
-.pocket-distance span { font-size: 18px; color: #555; text-shadow: none; font-weight: normal; }
-#pocketCanvas { flex: 1; width: 100%; max-height: 40vh; margin: 20px 0; opacity: 0.8; }
-.slide-to-unlock { width: 80%; height: 50px; background: #1a1a1a; border-radius: 25px; position: relative; margin-bottom: 50px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.slide-text { color: #555; font-size: 14px; font-weight: bold; letter-spacing: 1px; z-index: 1; pointer-events: none; }
-.slide-thumb { position: absolute; left: 4px; top: 4px; width: 42px; height: 42px; background: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #888; z-index: 2; cursor: pointer; touch-action: none; }
-.slide-thumb i { font-size: 16px; }
+.pocket-distance { margin-top: 5vh; font-size: 56px; font-weight: 700; color: #008000; text-shadow: 0 0 25px rgba(0,128,0,0.5); letter-spacing: -1px; }
+.pocket-distance span { font-size: 18px; color: #444; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
+#pocketCanvas { flex: 1; width: 100%; max-height: 45vh; margin: 20px 0; opacity: 0.8; }
+.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #111; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); border: 1px solid #222; }
+.slide-text { color: #444; font-size: 13px; font-weight: 600; letter-spacing: 2px; z-index: 1; pointer-events: none; text-transform: uppercase; }
+.slide-thumb { position: absolute; left: 4px; top: 4px; width: 48px; height: 48px; background: linear-gradient(145deg, #333, #222); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #888; z-index: 2; cursor: pointer; touch-action: none; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+.slide-thumb i { font-size: 18px; text-shadow: 0 -1px 0 rgba(0,0,0,0.8); }
 
 #searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
@@ -158,7 +161,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.17 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.18 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -178,6 +181,10 @@ button:active { transform: scale(0.92); }
         <div class="stat-row"><span class="stat-label" id="lblCity">城市</span><span class="stat-val city" id="pctCity">--%</span></div>
         <div class="stat-row"><span class="stat-label" id="lblDistrict">区</span><span class="stat-val district" id="pctDistrict">--%</span></div>
     </div>
+</div>
+
+<div id="trackingStatusPanel" class="btn-shadow hidden">
+    <div class="gps-status"><div id="mainGpsDot" class="gps-dot"></div> <span id="mainGpsText">GPS 定位中...</span></div>
 </div>
 
 <div id="topRightArea">
@@ -223,7 +230,7 @@ button:active { transform: scale(0.92); }
     <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成</button>
     
     <button id="endAutoTrackBtn" class="split-btn"><i class="fa-solid fa-stop"></i> 结束追踪</button>
-    <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i></button>
+    <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i>息屏</button>
 </div>
 
 <div id="pocketModeOverlay">
@@ -380,6 +387,10 @@ button:active { transform: scale(0.92); }
 
     function renderLayers() {
         if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
+        
+        // 自动追踪模式下：隐藏迷雾和探索区域多边形，地图全亮
+        if (isAutoRecording) return;
+        
         let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
         if(isEditMode) { 
             if(viewTodayOnly) { let todayPrefix = getTodayPrefix(), todayPoly = null; for(let k in appData.renderCache.dailyExplored) { if(k.startsWith(todayPrefix)) todayPoly = todayPoly ? turf.union(todayPoly, appData.renderCache.dailyExplored[k]) : appData.renderCache.dailyExplored[k]; }
@@ -404,13 +415,17 @@ button:active { transform: scale(0.92); }
         if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
         if (stateOverride === 'recording') { 
             mainToggleContainer.classList.add('is-active', 'is-tracking'); 
+            document.getElementById('trackingStatusPanel').classList.remove('hidden');
+            renderLayers(); // 强制重新渲染图层以隐藏迷雾
             return; 
         }
         
         if (!isEditMode && !isAutoRecording) { 
             mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
             document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-stop"></i> 结束追踪';
+            document.getElementById('trackingStatusPanel').classList.add('hidden');
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
+            renderLayers(); // 恢复迷雾显示
         } else if (isEditMode) { 
             document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
             mainToggleContainer.classList.add('is-active'); 
@@ -705,7 +720,11 @@ button:active { transform: scale(0.92); }
                     document.getElementById('pocketGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
                     updatePocketUI(lat, lng, distDeltaKm);
                 } else {
-                    // 正常模式下：在地图上绘制虚线草稿
+                    // 正常追踪模式下：更新普通界面的状态指示灯
+                    document.getElementById('mainGpsDot').classList.remove('lost');
+                    document.getElementById('mainGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
+
+                    // 在地图上绘制虚线草稿
                     if (!livePolyline) {
                         let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
                         livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
@@ -721,6 +740,9 @@ button:active { transform: scale(0.92); }
                 if (isPocketMode) {
                     document.getElementById('pocketGpsDot').classList.add('lost');
                     document.getElementById('pocketGpsText').textContent = 'GPS 丢失';
+                } else {
+                    document.getElementById('mainGpsDot').classList.add('lost');
+                    document.getElementById('mainGpsText').textContent = 'GPS 丢失';
                 }
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
