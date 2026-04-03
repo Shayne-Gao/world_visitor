@@ -166,7 +166,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.19 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.20 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -595,21 +595,29 @@ button:active { transform: scale(0.92); }
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
+    let lastPocketUiUpdateTime = 0; // 用于 DOM 节流
+
     // 更新 Pocket Mode UI 状态
     function updatePocketUI(lat, lng, distDeltaKm, speedKmh = null, altitude = null) {
         if (!isPocketMode) return;
+        
+        pocketDistanceKm += distDeltaKm;
+        
+        // DOM 操作节流：每 2 秒最多更新一次 DOM，防止高频触发重排/重绘
+        const nowMs = Date.now();
+        if (nowMs - lastPocketUiUpdateTime < 2000 && livePath.length > 2) return;
+        lastPocketUiUpdateTime = nowMs;
+
         const now = new Date();
         document.getElementById('pocketTime').textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
         
-        pocketDistanceKm += distDeltaKm;
         document.getElementById('pocketDistance').innerHTML = pocketDistanceKm.toFixed(2) + ' <span>km</span>';
         
         if (speedKmh !== null && !isNaN(speedKmh)) document.getElementById('pocketSpeed').textContent = Math.round(speedKmh);
         if (altitude !== null && !isNaN(altitude)) document.getElementById('pocketAlt').textContent = Math.round(altitude);
         
-        // Canvas 简易绘制 (节流：每 5 秒最多重绘一次)
-        const nowMs = Date.now();
-        if (nowMs - lastPocketCanvasDrawTime < 5000 && livePath.length > 2) return;
+        // Canvas 简易绘制 (节流：每 10 秒最多重绘一次)
+        if (nowMs - lastPocketCanvasDrawTime < 10000 && livePath.length > 2) return;
         lastPocketCanvasDrawTime = nowMs;
 
         const canvas = document.getElementById('pocketCanvas');
