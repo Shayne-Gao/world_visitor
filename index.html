@@ -400,20 +400,21 @@ button:active { transform: scale(0.92); }
 
     function updateMainBtnUI(stateOverride) {
         if (stateOverride === 'locating') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
-        if (stateOverride === 'processing') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
+        if (stateOverride === 'processing') { document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
         if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
         if (stateOverride === 'recording') { 
-            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-person-walking"></i> 结束追踪 (屏幕常亮)'; 
-            mainToggleContainer.classList.add('is-active'); 
+            mainToggleContainer.classList.add('is-active', 'is-tracking'); 
             return; 
         }
         
         if (!isEditMode && !isAutoRecording) { 
-            mainToggleContainer.classList.remove('is-active'); 
+            mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
+            document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-stop"></i> 结束追踪';
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
         } else if (isEditMode) { 
             document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
             mainToggleContainer.classList.add('is-active'); 
+            mainToggleContainer.classList.remove('is-tracking');
             if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
         }
     }
