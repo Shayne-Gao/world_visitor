@@ -103,9 +103,12 @@ button:active { transform: scale(0.92); }
 #pocketGpsDot { background: #005500; box-shadow: none; animation: none; opacity: 0.8; }
 #pocketGpsDot.lost { background: #550000; opacity: 0.8; }
 @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
-.pocket-distance { margin-top: 5vh; font-size: 56px; font-weight: normal; color: #005500; text-shadow: none; letter-spacing: -1px; }
+.pocket-distance { margin-top: 2vh; font-size: 56px; font-weight: normal; color: #005500; text-shadow: none; letter-spacing: -1px; }
 .pocket-distance span { font-size: 18px; color: #333; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
-#pocketCanvas { flex: 1; width: 100%; max-height: 45vh; margin: 20px 0; opacity: 0.3; }
+.pocket-sub-stats { display: flex; gap: 30px; margin-top: 10px; color: #444; font-size: 18px; }
+.pocket-sub-stats .sub-stat { display: flex; align-items: baseline; gap: 4px; }
+.pocket-sub-stats small { font-size: 12px; color: #333; }
+#pocketCanvas { flex: 1; width: 80%; max-height: 35vh; margin: 15px 0; opacity: 0.2; }
 .slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #000; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 1px solid #1a1a1a; }
 .slide-text { color: #333; font-size: 13px; font-weight: normal; letter-spacing: 2px; z-index: 1; pointer-events: none; text-transform: uppercase; }
 .slide-thumb { position: absolute; left: 4px; top: 4px; width: 48px; height: 48px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 1px solid #222; }
@@ -163,7 +166,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.18 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.19 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -241,6 +244,10 @@ button:active { transform: scale(0.92); }
         <div id="pocketTime" class="pocket-time">00:00</div>
     </div>
     <div id="pocketDistance" class="pocket-distance">0.00 <span>km</span></div>
+    <div class="pocket-sub-stats">
+        <div class="sub-stat"><span id="pocketSpeed">0</span> <small>km/h</small></div>
+        <div class="sub-stat"><span id="pocketAlt">--</span> <small>m</small></div>
+    </div>
     <canvas id="pocketCanvas"></canvas>
     <div class="slide-to-unlock" id="slideUnlockContainer">
         <div class="slide-text">&gt;&gt;&gt; 滑动解锁以退出 &gt;&gt;&gt;</div>
@@ -589,13 +596,16 @@ button:active { transform: scale(0.92); }
     }
 
     // 更新 Pocket Mode UI 状态
-    function updatePocketUI(lat, lng, distDeltaKm) {
+    function updatePocketUI(lat, lng, distDeltaKm, speedKmh = null, altitude = null) {
         if (!isPocketMode) return;
         const now = new Date();
         document.getElementById('pocketTime').textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
         
         pocketDistanceKm += distDeltaKm;
         document.getElementById('pocketDistance').innerHTML = pocketDistanceKm.toFixed(2) + ' <span>km</span>';
+        
+        if (speedKmh !== null && !isNaN(speedKmh)) document.getElementById('pocketSpeed').textContent = Math.round(speedKmh);
+        if (altitude !== null && !isNaN(altitude)) document.getElementById('pocketAlt').textContent = Math.round(altitude);
         
         // Canvas 简易绘制 (节流：每 5 秒最多重绘一次)
         const nowMs = Date.now();
@@ -722,10 +732,15 @@ button:active { transform: scale(0.92); }
                 if (isPocketMode) {
                     // 省电模式下：仅更新状态灯、距离和 Canvas，绝对不操作 Leaflet DOM
                     const distDeltaKm = livePath.length > 1 ? calcDistanceKm(livePath[livePath.length-2], [lng, lat]) : 0;
+                    
+                    // 获取免费数据：速度 (m/s -> km/h) 和海拔
+                    const speedKmh = pos.coords.speed ? (pos.coords.speed * 3.6) : 0;
+                    const altitude = pos.coords.altitude || 0;
+
                     const dot = document.getElementById('pocketGpsDot');
                     dot.classList.remove('lost'); 
                     document.getElementById('pocketGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
-                    updatePocketUI(lat, lng, distDeltaKm);
+                    updatePocketUI(lat, lng, distDeltaKm, speedKmh, altitude);
                 } else {
                     // 正常追踪模式下：更新普通界面的状态指示灯
                     document.getElementById('mainGpsDot').classList.remove('lost');
