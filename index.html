@@ -98,6 +98,7 @@ button:active { transform: scale(0.92); }
 #pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
 .pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
 .pocket-time { font-size: 24px; color: #555; font-weight: normal; letter-spacing: 2px; }
+.pocket-battery { font-size: 20px; color: #555; letter-spacing: 1px; }
 .gps-status { display: flex; align-items: center; gap: 8px; font-size: 16px; color: #555; }
 .gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
 .gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
@@ -167,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.23 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.24 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -243,6 +244,7 @@ button:active { transform: scale(0.92); }
     <div class="pocket-header">
         <div class="gps-status"><div id="pocketGpsDot" class="gps-dot"></div> <span id="pocketGpsText">GPS 活跃</span></div>
         <div id="pocketTime" class="pocket-time">00:00</div>
+        <div id="pocketBattery" class="pocket-battery">--%</div>
     </div>
     <div id="pocketDistance" class="pocket-distance">0.00 <span>km</span></div>
     <div class="pocket-sub-stats">
@@ -657,9 +659,31 @@ button:active { transform: scale(0.92); }
         ctx.stroke();
     }
 
+    let pocketStartTime = 0;
+    let pocketStartBattery = null;
+    let batteryObj = null;
+    
+    if (navigator.getBattery) {
+        navigator.getBattery().then(b => {
+            batteryObj = b;
+            b.addEventListener('levelchange', () => {
+                if (isPocketMode) {
+                    document.getElementById('pocketBattery').textContent = Math.round(b.level * 100) + '%';
+                }
+            });
+        });
+    }
+
     // 进入省电模式
     document.getElementById('pocketModeBtn').onclick = () => {
         isPocketMode = true;
+        pocketStartTime = Date.now();
+        if (batteryObj) {
+            pocketStartBattery = batteryObj.level;
+            document.getElementById('pocketBattery').textContent = Math.round(batteryObj.level * 100) + '%';
+        } else {
+            document.getElementById('pocketBattery').textContent = '--%';
+        }
         
         // 计算当前 livePath 的总距离，作为初始距离
         pocketDistanceKm = 0;
@@ -690,6 +714,24 @@ button:active { transform: scale(0.92); }
         if(dx >= maxW * 0.95) { // 解锁成功
             isSliding = false;
             isPocketMode = false;
+            
+            // 耗电分析报告
+            const timeSpent = Date.now() - pocketStartTime;
+            let reportMsg = `【息屏追踪报告】\n时长: ${Math.round(timeSpent / 1000 / 60)} 分钟`;
+            if (batteryObj && pocketStartBattery !== null) {
+                const batteryUsed = pocketStartBattery - batteryObj.level;
+                reportMsg += `\n耗电: ${Math.round(batteryUsed * 100)}%`;
+                if (batteryUsed > 0) {
+                    const msPerPercent = timeSpent / (batteryUsed * 100);
+                    reportMsg += `\n效率: 1% 电量约可追踪 ${(msPerPercent / 1000 / 60).toFixed(1)} 分钟`;
+                } else {
+                    reportMsg += `\n效率: 电量无明显下降，完美！`;
+                }
+            } else {
+                reportMsg += `\n耗电: 当前设备或浏览器不支持电量读取`;
+            }
+            alert(reportMsg);
+
             document.getElementById('pocketModeOverlay').classList.remove('active');
             document.getElementById('map').style.display = 'block';
             map.invalidateSize(); // 恢复地图渲染
