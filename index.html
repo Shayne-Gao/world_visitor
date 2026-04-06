@@ -167,7 +167,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.22 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.23 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -207,7 +207,7 @@ button:active { transform: scale(0.92); }
 </div>
 
 <div id="rightSideTools">
-    <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn" data-size="0.02">小</button><button class="brush-btn active" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
+    <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
     <div id="baseTools">
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
@@ -349,7 +349,7 @@ button:active { transform: scale(0.92); }
 
     const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
 
-    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.05, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
     let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
 
     const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
