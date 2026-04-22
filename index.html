@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.25 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.26 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -220,6 +220,8 @@ button:active { transform: scale(0.92); }
                 <button class="sub-btn layer-opt" data-layer="google-hybrid"><i class="fa-solid fa-map-location-dot" style="color:#34A853"></i> 谷歌混合</button>
                 <button class="sub-btn layer-opt" data-layer="google-street"><i class="fa-solid fa-road" style="color:#FBBC05"></i> 谷歌街道</button>
                 <div style="height:1px; background:#ddd; margin: 2px 0;"></div>
+                <button class="sub-btn layer-opt" data-layer="amap"><i class="fa-solid fa-map" style="color:#007bff"></i> 高德地图</button>
+                <button class="sub-btn layer-opt" data-layer="geoq"><i class="fa-solid fa-map-pin" style="color:#17a2b8"></i> 智图 GeoQ</button>
                 <button class="sub-btn layer-opt" data-layer="arcgis-satellite"><i class="fa-solid fa-satellite" style="color:#666"></i> ArcGIS 卫星</button>
                 <button class="sub-btn layer-opt" data-layer="osm-street"><i class="fa-solid fa-street-view" style="color:#666"></i> OSM 街道</button>
             </div>
@@ -263,6 +265,88 @@ button:active { transform: scale(0.92); }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 
 <script>
+    // --- WGS84 to GCJ02 坐标转换 (用于修复国内底图偏移) ---
+    const CoordTransform = {
+        PI: 3.1415926535897932384626,
+        a: 6378245.0,
+        ee: 0.00669342162296594323,
+        outOfChina: function(lat, lng) {
+            if (lng < 72.004 || lng > 137.8347) return true;
+            if (lat < 0.8293 || lat > 55.8271) return true;
+            return false;
+        },
+        transformLat: function(x, y) {
+            let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * this.PI) + 20.0 * Math.sin(2.0 * x * this.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(y * this.PI) + 40.0 * Math.sin(y / 3.0 * this.PI)) * 2.0 / 3.0;
+            ret += (160.0 * Math.sin(y / 12.0 * this.PI) + 320 * Math.sin(y * this.PI / 30.0)) * 2.0 / 3.0;
+            return ret;
+        },
+        transformLng: function(x, y) {
+            let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * this.PI) + 20.0 * Math.sin(2.0 * x * this.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(x * this.PI) + 40.0 * Math.sin(x / 3.0 * this.PI)) * 2.0 / 3.0;
+            ret += (150.0 * Math.sin(x / 12.0 * this.PI) + 300.0 * Math.sin(x / 30.0 * this.PI)) * 2.0 / 3.0;
+            return ret;
+        },
+        wgs84togcj02: function(lng, lat) {
+            if (this.outOfChina(lat, lng)) { return [lng, lat]; }
+            let dlat = this.transformLat(lng - 105.0, lat - 35.0);
+            let dlng = this.transformLng(lng - 105.0, lat - 35.0);
+            let radlat = lat / 180.0 * this.PI;
+            let magic = Math.sin(radlat);
+            magic = 1 - this.ee * magic * magic;
+            let sqrtmagic = Math.sqrt(magic);
+            dlat = (dlat * 180.0) / ((this.a * (1 - this.ee)) / (magic * sqrtmagic) * this.PI);
+            dlng = (dlng * 180.0) / (this.a / sqrtmagic * Math.cos(radlat) * this.PI);
+            let mglat = lat + dlat;
+            let mglng = lng + dlng;
+            return [mglng, mglat];
+        },
+        gcj02towgs84: function(lng, lat) {
+            if (this.outOfChina(lat, lng)) { return [lng, lat]; }
+            let dlat = this.transformLat(lng - 105.0, lat - 35.0);
+            let dlng = this.transformLng(lng - 105.0, lat - 35.0);
+            let radlat = lat / 180.0 * this.PI;
+            let magic = Math.sin(radlat);
+            magic = 1 - this.ee * magic * magic;
+            let sqrtmagic = Math.sqrt(magic);
+            dlat = (dlat * 180.0) / ((this.a * (1 - this.ee)) / (magic * sqrtmagic) * this.PI);
+            dlng = (dlng * 180.0) / (this.a / sqrtmagic * Math.cos(radlat) * this.PI);
+            let mglat = lat + dlat;
+            let mglng = lng + dlng;
+            return [lng * 2 - mglng, lat * 2 - mglat];
+        }
+    };
+
+    // --- 修改 Leaflet 默认投影处理，实现按图层自动偏移 ---
+    // 保存原始的 LatLng 到 Point 的转换方法
+    const originalProject = L.CRS.EPSG3857.project;
+    const originalUnproject = L.CRS.EPSG3857.unproject;
+    
+    // 覆盖 project 方法：如果在国内，并且使用的是需要偏移的图层，则把真实的 WGS84 临时伪装成 GCJ02 再进行像素投影
+    L.CRS.EPSG3857.project = function (latlng) {
+        // 只有这三个国内地图底图采用了火星坐标系（高德、智图、谷歌国内）
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street' || currentLayerKey === 'google-satellite' || currentLayerKey === 'google-hybrid';
+        if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+            const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
+            const fakeLatLng = new L.LatLng(gcj[1], gcj[0]);
+            return originalProject.call(this, fakeLatLng);
+        }
+        return originalProject.call(this, latlng);
+    };
+    
+    // 覆盖 unproject 方法：如果在国内，把屏幕点击位置还原出来的假 GCJ02 换算回真实的 WGS84 存入业务逻辑
+    L.CRS.EPSG3857.unproject = function (point) {
+        const latlng = originalUnproject.call(this, point);
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street' || currentLayerKey === 'google-satellite' || currentLayerKey === 'google-hybrid';
+        if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+            const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
+            return new L.LatLng(wgs[1], wgs[0]);
+        }
+        return latlng;
+    };
+
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
     
@@ -277,7 +361,7 @@ button:active { transform: scale(0.92); }
         }
     }
     
-    // 图层源定义：包含 5 种模式
+    // 图层源定义：包含 7 种模式
     const mapSources = {
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
@@ -286,7 +370,9 @@ button:active { transform: scale(0.92); }
         },
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
-            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'}),
+            GeoQ: L.tileLayer('https://map.geoq.cn/ArcGIS/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: '&copy; 智图 GeoQ'})
         }
     };
     
@@ -312,6 +398,8 @@ button:active { transform: scale(0.92); }
             else if(layerKey === 'google-street') currentMapLayer = mapSources.street.GoogleStreet;
             else if(layerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
             else if(layerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
+            else if(layerKey === 'amap') currentMapLayer = mapSources.street.AMap;
+            else if(layerKey === 'geoq') currentMapLayer = mapSources.street.GeoQ;
             
             currentMapLayer.addTo(map);
             currentLayerKey = layerKey;
