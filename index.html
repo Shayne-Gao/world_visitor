@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.32 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.33 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -321,57 +321,73 @@ button:active { transform: scale(0.92); }
         }
     };
 
-    // --- 修改 Leaflet 默认投影处理，实现按图层自动偏移 ---
+    // --- 极简且无痛的底层投影覆盖方案 ---
     // 保存原始的 LatLng 到 Point 的转换方法
     const originalProject = L.Projection.SphericalMercator.project;
     const originalUnproject = L.Projection.SphericalMercator.unproject;
     
-    // --- 采用终极投影重构：支持混合图层中的单一偏移 ---
-    // 由于底层的 L.Projection.SphericalMercator.project 无法区分是哪个图层在请求转换，
-    // 导致全局判断会把混合图层中的卫星图和标签图“一起偏移”或“一起不偏移”。
-    // 真正的解决方案是：在计算特定图层的网格时开启“投影劫持”上下文。
-    
-    let isProjectingGcj02Layer = false;
-    
+    // 方案 A：针对“高德地图”、“谷歌街道地图”等纯火星坐标系地图
+    // 我们全局接管投影。这样用户的轨迹 (Vectors)、地图中心点，都会自动与 GCJ-02 对齐。
     L.Projection.SphericalMercator.project = function (latlng) {
-        if (isProjectingGcj02Layer && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
-            const fakeLatLng = new L.LatLng(gcj[1], gcj[0]);
-            return originalProject.call(this, fakeLatLng);
+            return originalProject.call(this, new L.LatLng(gcj[1], gcj[0]));
         }
         return originalProject.call(this, latlng);
     };
     
     L.Projection.SphericalMercator.unproject = function (point) {
         const latlng = originalUnproject.call(this, point);
-        // 对于 unproject (比如点击屏幕获取坐标)，我们只需要根据当前处于什么“主视图”模式来判断
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street' || currentLayerKey === 'google-hybrid';
-        if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
             return new L.LatLng(wgs[1], wgs[0]);
         }
         return latlng;
     };
 
-    // 自定义一个能在渲染瓦片时自动开启 GCJ02 投影上下文的图层类
-    L.TileLayer.Gcj02 = L.TileLayer.extend({
-        _getTiledPixelBounds: function (center) {
-            isProjectingGcj02Layer = true;
-            const res = L.TileLayer.prototype._getTiledPixelBounds.call(this, center);
-            isProjectingGcj02Layer = false;
-            return res;
-        },
-        _getTilePos: function (coords) {
-            isProjectingGcj02Layer = true;
-            const res = L.TileLayer.prototype._getTilePos.call(this, coords);
-            isProjectingGcj02Layer = false;
-            return res;
+    // 方案 B：针对 Google Hybrid (混合模式)
+    // 混合模式底层是 WGS84 卫星图，上层是 GCJ02 街道名标签图。
+    // 因为底层卫星图是 WGS84，我们绝对不能用方案 A 去全局扭曲投影（否则卫星图也跟着扭曲了）。
+    // 所以 Hybrid 模式下，全局投影依然是纯净的 WGS84（保证用户的轨迹和卫星底图完美对齐）。
+    // 然后，我们单独计算当前屏幕中心的 GCJ-02 物理偏移像素，用 CSS 的方式强行把上层标签图“推”回正确的位置。
+    
+    function updateHybridLabelOffset() {
+        if (currentLayerKey !== 'google-hybrid') return;
+        
+        const labelLayers = document.querySelectorAll('.hybrid-label-layer');
+        if (!labelLayers.length) return;
+
+        const center = map.getCenter();
+        if (CoordTransform.outOfChina(center.lat, center.lng)) {
+            labelLayers.forEach(el => { el.style.marginLeft = '0px'; el.style.marginTop = '0px'; });
+            return;
         }
-    });
+
+        // 计算当前中心点在 WGS84 下的像素位置
+        const pWgs = map.project(center, map.getZoom());
+        // 计算当前中心点在 GCJ02 下的像素位置
+        const gcj = CoordTransform.wgs84togcj02(center.lng, center.lat);
+        const pGcj = map.project(new L.LatLng(gcj[1], gcj[0]), map.getZoom());
+
+        // 标签原本画在 pGcj 的位置，我们需要它视觉上移动到 pWgs 的位置
+        const dx = pWgs.x - pGcj.x;
+        const dy = pWgs.y - pGcj.y;
+
+        labelLayers.forEach(el => {
+            el.style.marginLeft = `${dx}px`;
+            el.style.marginTop = `${dy}px`;
+        });
+    }
 
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
     
+    // 监听地图移动和缩放，实时修正 Hybrid 标签偏移
+    map.on('move', updateHybridLabelOffset);
+    map.on('zoom', updateHybridLabelOffset);
+
     // 全局当前位置标识点
     let currentLocationMarker = null;
     function updateCurrentLocationMarker(lat, lng) {
@@ -388,16 +404,16 @@ button:active { transform: scale(0.92); }
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
             GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加自动偏移的 GCJ02 路网标注层 (lyrs=h)
+            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (通过 className 获取并施加 CSS 偏移)
             GoogleHybrid: L.layerGroup([
                 L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-                new L.TileLayer.Gcj02('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
+                L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20, className: 'hybrid-label-layer'})
             ])
         },
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
-            GoogleStreet: new L.TileLayer.Gcj02('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            AMap: new L.TileLayer.Gcj02('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
+            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
         }
     };
     
@@ -433,6 +449,10 @@ button:active { transform: scale(0.92); }
             // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
             map.setView(center, zoom, {animate: false});
             currentMapLayer.addTo(map);
+            
+            if(layerKey === 'google-hybrid') {
+                updateHybridLabelOffset();
+            }
             
             // 如果存在当前定位点，强制刷新其在地图上的像素位置
             if (currentLocationMarker) {
