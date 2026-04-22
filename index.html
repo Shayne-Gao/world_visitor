@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.26 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.27 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -321,13 +321,13 @@ button:active { transform: scale(0.92); }
 
     // --- 修改 Leaflet 默认投影处理，实现按图层自动偏移 ---
     // 保存原始的 LatLng 到 Point 的转换方法
-    const originalProject = L.CRS.EPSG3857.project;
-    const originalUnproject = L.CRS.EPSG3857.unproject;
+    const originalProject = L.Projection.SphericalMercator.project;
+    const originalUnproject = L.Projection.SphericalMercator.unproject;
     
     // 覆盖 project 方法：如果在国内，并且使用的是需要偏移的图层，则把真实的 WGS84 临时伪装成 GCJ02 再进行像素投影
-    L.CRS.EPSG3857.project = function (latlng) {
-        // 只有这三个国内地图底图采用了火星坐标系（高德、智图、谷歌国内）
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street' || currentLayerKey === 'google-satellite' || currentLayerKey === 'google-hybrid';
+    L.Projection.SphericalMercator.project = function (latlng) {
+        // 只对这三个国内街道地图（高德、智图、谷歌国内）采用火星坐标系修正，卫星图和 OSM 保持原始 WGS84
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street';
         if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
             const fakeLatLng = new L.LatLng(gcj[1], gcj[0]);
@@ -337,9 +337,9 @@ button:active { transform: scale(0.92); }
     };
     
     // 覆盖 unproject 方法：如果在国内，把屏幕点击位置还原出来的假 GCJ02 换算回真实的 WGS84 存入业务逻辑
-    L.CRS.EPSG3857.unproject = function (point) {
+    L.Projection.SphericalMercator.unproject = function (point) {
         const latlng = originalUnproject.call(this, point);
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street' || currentLayerKey === 'google-satellite' || currentLayerKey === 'google-hybrid';
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street';
         if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
             return new L.LatLng(wgs[1], wgs[0]);
@@ -392,6 +392,10 @@ button:active { transform: scale(0.92); }
             const layerKey = e.currentTarget.getAttribute('data-layer');
             if(layerKey === currentLayerKey) return;
             
+            // 记录当前的 WGS84 中心点和缩放层级
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            
             map.removeLayer(currentMapLayer);
             if(layerKey === 'google-satellite') currentMapLayer = mapSources.satellite.GoogleSatellite;
             else if(layerKey === 'google-hybrid') currentMapLayer = mapSources.satellite.GoogleHybrid;
@@ -401,8 +405,11 @@ button:active { transform: scale(0.92); }
             else if(layerKey === 'amap') currentMapLayer = mapSources.street.AMap;
             else if(layerKey === 'geoq') currentMapLayer = mapSources.street.GeoQ;
             
-            currentMapLayer.addTo(map);
             currentLayerKey = layerKey;
+            
+            // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
+            map.setView(center, zoom, {animate: false});
+            currentMapLayer.addTo(map);
             
             // 更新选中状态 UI
             document.querySelectorAll('.layer-opt').forEach(b => b.style.background = 'transparent');
