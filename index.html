@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.27 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.28 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -265,6 +265,9 @@ button:active { transform: scale(0.92); }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 
 <script>
+    // 全局状态预定义
+    let currentLayerKey = 'google-hybrid';
+
     // --- WGS84 to GCJ02 坐标转换 (用于修复国内底图偏移) ---
     const CoordTransform = {
         PI: 3.1415926535897932384626,
@@ -376,7 +379,6 @@ button:active { transform: scale(0.92); }
         }
     };
     
-    let currentLayerKey = 'google-hybrid';
     let currentMapLayer = mapSources.satellite.GoogleHybrid;
     currentMapLayer.addTo(map);
 
