@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.29 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.30 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -409,6 +409,12 @@ button:active { transform: scale(0.92); }
             // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
             map.setView(center, zoom, {animate: false});
             currentMapLayer.addTo(map);
+            
+            // 如果存在当前定位点，强制刷新其在地图上的像素位置
+            if (currentLocationMarker) {
+                const latlng = currentLocationMarker.getLatLng();
+                currentLocationMarker.setLatLng(latlng);
+            }
             
             // 更新选中状态 UI
             document.querySelectorAll('.layer-opt').forEach(b => b.style.background = 'transparent');
