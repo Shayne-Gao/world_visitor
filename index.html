@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.31 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.32 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -326,11 +326,15 @@ button:active { transform: scale(0.92); }
     const originalProject = L.Projection.SphericalMercator.project;
     const originalUnproject = L.Projection.SphericalMercator.unproject;
     
-    // 覆盖 project 方法：如果在国内，并且使用的是需要偏移的图层，则把真实的 WGS84 临时伪装成 GCJ02 再进行像素投影
+    // --- 采用终极投影重构：支持混合图层中的单一偏移 ---
+    // 由于底层的 L.Projection.SphericalMercator.project 无法区分是哪个图层在请求转换，
+    // 导致全局判断会把混合图层中的卫星图和标签图“一起偏移”或“一起不偏移”。
+    // 真正的解决方案是：在计算特定图层的网格时开启“投影劫持”上下文。
+    
+    let isProjectingGcj02Layer = false;
+    
     L.Projection.SphericalMercator.project = function (latlng) {
-        // 只对这三个国内街道地图（高德、谷歌国内）采用火星坐标系修正，卫星图和 OSM 保持原始 WGS84
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
-        if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+        if (isProjectingGcj02Layer && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
             const fakeLatLng = new L.LatLng(gcj[1], gcj[0]);
             return originalProject.call(this, fakeLatLng);
@@ -338,16 +342,32 @@ button:active { transform: scale(0.92); }
         return originalProject.call(this, latlng);
     };
     
-    // 覆盖 unproject 方法：如果在国内，把屏幕点击位置还原出来的假 GCJ02 换算回真实的 WGS84 存入业务逻辑
     L.Projection.SphericalMercator.unproject = function (point) {
         const latlng = originalUnproject.call(this, point);
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        // 对于 unproject (比如点击屏幕获取坐标)，我们只需要根据当前处于什么“主视图”模式来判断
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street' || currentLayerKey === 'google-hybrid';
         if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
             return new L.LatLng(wgs[1], wgs[0]);
         }
         return latlng;
     };
+
+    // 自定义一个能在渲染瓦片时自动开启 GCJ02 投影上下文的图层类
+    L.TileLayer.Gcj02 = L.TileLayer.extend({
+        _getTiledPixelBounds: function (center) {
+            isProjectingGcj02Layer = true;
+            const res = L.TileLayer.prototype._getTiledPixelBounds.call(this, center);
+            isProjectingGcj02Layer = false;
+            return res;
+        },
+        _getTilePos: function (coords) {
+            isProjectingGcj02Layer = true;
+            const res = L.TileLayer.prototype._getTilePos.call(this, coords);
+            isProjectingGcj02Layer = false;
+            return res;
+        }
+    });
 
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
@@ -368,16 +388,16 @@ button:active { transform: scale(0.92); }
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
             GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (lyrs=h)
+            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加自动偏移的 GCJ02 路网标注层 (lyrs=h)
             GoogleHybrid: L.layerGroup([
                 L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-                L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
+                new L.TileLayer.Gcj02('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
             ])
         },
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
-            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
+            GoogleStreet: new L.TileLayer.Gcj02('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            AMap: new L.TileLayer.Gcj02('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
         }
     };
     
