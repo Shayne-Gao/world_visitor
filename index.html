@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.28 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.29 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -221,7 +221,6 @@ button:active { transform: scale(0.92); }
                 <button class="sub-btn layer-opt" data-layer="google-street"><i class="fa-solid fa-road" style="color:#FBBC05"></i> 谷歌街道</button>
                 <div style="height:1px; background:#ddd; margin: 2px 0;"></div>
                 <button class="sub-btn layer-opt" data-layer="amap"><i class="fa-solid fa-map" style="color:#007bff"></i> 高德地图</button>
-                <button class="sub-btn layer-opt" data-layer="geoq"><i class="fa-solid fa-map-pin" style="color:#17a2b8"></i> 智图 GeoQ</button>
                 <button class="sub-btn layer-opt" data-layer="arcgis-satellite"><i class="fa-solid fa-satellite" style="color:#666"></i> ArcGIS 卫星</button>
                 <button class="sub-btn layer-opt" data-layer="osm-street"><i class="fa-solid fa-street-view" style="color:#666"></i> OSM 街道</button>
             </div>
@@ -329,8 +328,8 @@ button:active { transform: scale(0.92); }
     
     // 覆盖 project 方法：如果在国内，并且使用的是需要偏移的图层，则把真实的 WGS84 临时伪装成 GCJ02 再进行像素投影
     L.Projection.SphericalMercator.project = function (latlng) {
-        // 只对这三个国内街道地图（高德、智图、谷歌国内）采用火星坐标系修正，卫星图和 OSM 保持原始 WGS84
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street';
+        // 只对这三个国内街道地图（高德、谷歌国内）采用火星坐标系修正，卫星图和 OSM 保持原始 WGS84
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
         if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
             const fakeLatLng = new L.LatLng(gcj[1], gcj[0]);
@@ -342,7 +341,7 @@ button:active { transform: scale(0.92); }
     // 覆盖 unproject 方法：如果在国内，把屏幕点击位置还原出来的假 GCJ02 换算回真实的 WGS84 存入业务逻辑
     L.Projection.SphericalMercator.unproject = function (point) {
         const latlng = originalUnproject.call(this, point);
-        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'geoq' || currentLayerKey === 'google-street';
+        const needsOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
         if (needsOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
             return new L.LatLng(wgs[1], wgs[0]);
@@ -364,7 +363,7 @@ button:active { transform: scale(0.92); }
         }
     }
     
-    // 图层源定义：包含 7 种模式
+    // 图层源定义：包含 6 种模式
     const mapSources = {
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
@@ -374,8 +373,7 @@ button:active { transform: scale(0.92); }
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
             GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'}),
-            GeoQ: L.tileLayer('https://map.geoq.cn/ArcGIS/rest/services/ChinaOnlineCommunity/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: '&copy; 智图 GeoQ'})
+            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
         }
     };
     
@@ -405,7 +403,6 @@ button:active { transform: scale(0.92); }
             else if(layerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
             else if(layerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
             else if(layerKey === 'amap') currentMapLayer = mapSources.street.AMap;
-            else if(layerKey === 'geoq') currentMapLayer = mapSources.street.GeoQ;
             
             currentLayerKey = layerKey;
             
