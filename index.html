@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.33 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.34 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -348,45 +348,31 @@ button:active { transform: scale(0.92); }
     };
 
     // 方案 B：针对 Google Hybrid (混合模式)
-    // 混合模式底层是 WGS84 卫星图，上层是 GCJ02 街道名标签图。
-    // 因为底层卫星图是 WGS84，我们绝对不能用方案 A 去全局扭曲投影（否则卫星图也跟着扭曲了）。
-    // 所以 Hybrid 模式下，全局投影依然是纯净的 WGS84（保证用户的轨迹和卫星底图完美对齐）。
-    // 然后，我们单独计算当前屏幕中心的 GCJ-02 物理偏移像素，用 CSS 的方式强行把上层标签图“推”回正确的位置。
-    
-    function updateHybridLabelOffset() {
-        if (currentLayerKey !== 'google-hybrid') return;
-        
-        const labelLayers = document.querySelectorAll('.hybrid-label-layer');
-        if (!labelLayers.length) return;
-
-        const center = map.getCenter();
-        if (CoordTransform.outOfChina(center.lat, center.lng)) {
-            labelLayers.forEach(el => { el.style.marginLeft = '0px'; el.style.marginTop = '0px'; });
-            return;
+    // 混合模式下，底层是无偏移的 WGS84 卫星图，全局投影保持纯净。
+    // 为了解决混合层街道标签在缩放动画时不同步的问题，我们定制一个专用的 TileLayer。
+    // 它在计算每个瓦片的位置 (_getTilePos) 时施加像素偏移。这样偏移量会被编入瓦片的初始位置，
+    // 从而完美兼容 Leaflet 底层的 CSS transform 硬件加速缩放动画，解决缩放时的视觉错位。
+    L.TileLayer.HybridLabel = L.TileLayer.extend({
+        _getTilePos: function (coords) {
+            const pos = L.TileLayer.prototype._getTilePos.call(this, coords);
+            if (!this._map) return pos;
+            
+            const center = this._map.getCenter();
+            if (CoordTransform.outOfChina(center.lat, center.lng)) {
+                return pos;
+            }
+            
+            const z = coords.z;
+            const pWgs = this._map.project(center, z);
+            const gcj = CoordTransform.wgs84togcj02(center.lng, center.lat);
+            const pGcj = this._map.project(new L.LatLng(gcj[1], gcj[0]), z);
+            
+            return pos.add(new L.Point(pWgs.x - pGcj.x, pWgs.y - pGcj.y));
         }
-
-        // 计算当前中心点在 WGS84 下的像素位置
-        const pWgs = map.project(center, map.getZoom());
-        // 计算当前中心点在 GCJ02 下的像素位置
-        const gcj = CoordTransform.wgs84togcj02(center.lng, center.lat);
-        const pGcj = map.project(new L.LatLng(gcj[1], gcj[0]), map.getZoom());
-
-        // 标签原本画在 pGcj 的位置，我们需要它视觉上移动到 pWgs 的位置
-        const dx = pWgs.x - pGcj.x;
-        const dy = pWgs.y - pGcj.y;
-
-        labelLayers.forEach(el => {
-            el.style.marginLeft = `${dx}px`;
-            el.style.marginTop = `${dy}px`;
-        });
-    }
+    });
 
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
-    
-    // 监听地图移动和缩放，实时修正 Hybrid 标签偏移
-    map.on('move', updateHybridLabelOffset);
-    map.on('zoom', updateHybridLabelOffset);
 
     // 全局当前位置标识点
     let currentLocationMarker = null;
@@ -404,10 +390,10 @@ button:active { transform: scale(0.92); }
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
             GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (通过 className 获取并施加 CSS 偏移)
+            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (使用定制图层完美同步缩放动画)
             GoogleHybrid: L.layerGroup([
                 L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-                L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20, className: 'hybrid-label-layer'})
+                new L.TileLayer.HybridLabel('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
             ])
         },
         street: {
@@ -449,10 +435,6 @@ button:active { transform: scale(0.92); }
             // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
             map.setView(center, zoom, {animate: false});
             currentMapLayer.addTo(map);
-            
-            if(layerKey === 'google-hybrid') {
-                updateHybridLabelOffset();
-            }
             
             // 如果存在当前定位点，强制刷新其在地图上的像素位置
             if (currentLocationMarker) {
