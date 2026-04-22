@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.30 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.31 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -368,7 +368,11 @@ button:active { transform: scale(0.92); }
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
             GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            GoogleHybrid: L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'})
+            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (lyrs=h)
+            GoogleHybrid: L.layerGroup([
+                L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+                L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
+            ])
         },
         street: {
             OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
