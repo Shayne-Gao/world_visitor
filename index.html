@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.34 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.35 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -265,7 +265,7 @@ button:active { transform: scale(0.92); }
 
 <script>
     // 全局状态预定义
-    let currentLayerKey = 'google-hybrid';
+    let currentLayerKey = localStorage.getItem('fog_last_layer') || 'google-hybrid';
 
     // --- WGS84 to GCJ02 坐标转换 (用于修复国内底图偏移) ---
     const CoordTransform = {
@@ -403,11 +403,20 @@ button:active { transform: scale(0.92); }
         }
     };
     
-    let currentMapLayer = mapSources.satellite.GoogleHybrid;
+    let currentMapLayer;
+    if(currentLayerKey === 'google-satellite') currentMapLayer = mapSources.satellite.GoogleSatellite;
+    else if(currentLayerKey === 'google-hybrid') currentMapLayer = mapSources.satellite.GoogleHybrid;
+    else if(currentLayerKey === 'google-street') currentMapLayer = mapSources.street.GoogleStreet;
+    else if(currentLayerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
+    else if(currentLayerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
+    else if(currentLayerKey === 'amap') currentMapLayer = mapSources.street.AMap;
+    else { currentLayerKey = 'google-hybrid'; currentMapLayer = mapSources.satellite.GoogleHybrid; }
+    
     currentMapLayer.addTo(map);
 
     // 初始化时高亮默认图层按钮
-    document.querySelector('.layer-opt[data-layer="google-hybrid"]').style.background = '#e9ecef';
+    const activeBtn = document.querySelector(`.layer-opt[data-layer="${currentLayerKey}"]`);
+    if (activeBtn) activeBtn.style.background = '#e9ecef';
 
     document.getElementById('layerMenuBtn').onclick = () => {
         document.getElementById('layerSubMenu').classList.toggle('hidden');
@@ -431,6 +440,7 @@ button:active { transform: scale(0.92); }
             else if(layerKey === 'amap') currentMapLayer = mapSources.street.AMap;
             
             currentLayerKey = layerKey;
+            localStorage.setItem('fog_last_layer', currentLayerKey);
             
             // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
             map.setView(center, zoom, {animate: false});
