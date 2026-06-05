@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.36 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.37 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -1047,20 +1047,31 @@ button:active { transform: scale(0.92); }
     let isDragging = false, isRightDragging = false; let lastX, lastY;
     
     // --- 移动端“笔尖偏移” (Y-Axis Offset) 与虚拟准星 UI ---
-    // 为了防止胖手指遮挡视线，当检测到触摸操作时，绘制落点强制向上偏移一个常数（例如 -40px）
-    const TOUCH_Y_OFFSET = -40;
+    // 为了防止胖手指遮挡视线，当检测到触摸操作时，绘制落点强制向上偏移一个常数
+    const TOUCH_Y_OFFSET = -70; // 增大间距
     let virtualPenTip = null; // 用于在屏幕上指示真正落点的虚拟准星
+    let isAiming = false;     // 新增瞄准状态
+    let lastTouchEvent = null;// 记录最后一次触摸事件
 
-    function updateVirtualPenTip(point) {
+    function updateVirtualPenTip(point, state = 'drawing') {
         if (!virtualPenTip) {
             virtualPenTip = document.createElement('div');
-            virtualPenTip.style.cssText = 'position:absolute; width:12px; height:12px; border:2px solid #28a745; border-radius:50%; pointer-events:none; z-index:9999; transform:translate(-50%, -50%); box-shadow:0 0 4px rgba(0,0,0,0.3);';
+            virtualPenTip.style.cssText = 'position:absolute; width:16px; height:16px; border-radius:50%; pointer-events:none; z-index:9999; box-shadow:0 0 4px rgba(0,0,0,0.3); transition: transform 0.2s ease, border-color 0.2s;';
             // 十字交叉线
-            virtualPenTip.innerHTML = '<div style="position:absolute; top:5px; left:-2px; width:12px; height:2px; background:#28a745;"></div><div style="position:absolute; top:-2px; left:5px; width:2px; height:12px; background:#28a745;"></div>';
+            virtualPenTip.innerHTML = '<div class="cross-h" style="position:absolute; top:7px; left:-2px; width:20px; height:2px; transition: background 0.2s;"></div><div class="cross-v" style="position:absolute; top:-2px; left:7px; width:2px; height:20px; transition: background 0.2s;"></div>';
             mc.appendChild(virtualPenTip);
         }
+        
+        // 状态视觉反馈：蓝色为瞄准，红色放大为绘制中
+        const color = state === 'drawing' ? '#dc3545' : '#007bff';
+        const scale = state === 'drawing' ? 'scale(1.2)' : 'scale(1)';
+        
         virtualPenTip.style.left = point.x + 'px';
         virtualPenTip.style.top = point.y + 'px';
+        virtualPenTip.style.transform = `translate(-50%, -50%) ${scale}`;
+        virtualPenTip.style.border = `2px solid ${color}`;
+        virtualPenTip.querySelector('.cross-h').style.background = color;
+        virtualPenTip.querySelector('.cross-v').style.background = color;
     }
     
     function removeVirtualPenTip() {
@@ -1071,7 +1082,7 @@ button:active { transform: scale(0.92); }
     }
 
     // 辅助函数：应用 Y 轴偏移并返回真实的经纬度落点
-    function getOffsetLatLng(touchEvent) {
+    function getOffsetLatLng(touchEvent, state = 'drawing') {
         const touch = touchEvent.touches ? touchEvent.touches[0] : touchEvent;
         const rect = mc.getBoundingClientRect();
         // 获取手指相对于 map 容器的原始像素坐标
@@ -1082,7 +1093,7 @@ button:active { transform: scale(0.92); }
         const targetPoint = new L.Point(x, y + TOUCH_Y_OFFSET);
         
         // 更新准星 UI
-        updateVirtualPenTip(targetPoint);
+        updateVirtualPenTip(targetPoint, state);
         
         // 返回最终落点的经纬度
         return map.containerPointToLatLng(targetPoint);
@@ -1126,15 +1137,24 @@ button:active { transform: scale(0.92); }
         if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
 
         if(e.touches.length === 1) {
-            // 延迟 60ms 判定，如果 60ms 内没有出现第二根手指，才开始绘图
-            const touchEvent = e;
+            e.preventDefault(); // 阻止默认行为，防止屏幕滚动干扰
+            isAiming = true;
+            lastTouchEvent = e;
+            
+            // 初始显示蓝色瞄准准星
+            getOffsetLatLng(lastTouchEvent, 'aiming'); 
+            
+            // 增加停顿时间到 400ms，让用户有时间瞄准
             touchTimer = setTimeout(() => {
-                const latlng = getOffsetLatLng(touchEvent);
+                isAiming = false;
+                // 400ms 后变为红色放大，开始画线
+                const latlng = getOffsetLatLng(lastTouchEvent, 'drawing');
                 startDraw(latlng);
                 touchTimer = null;
-            }, 60);
+            }, 400);
         } else {
             // 如果已经是多指，确保取消绘图
+            isAiming = false;
             if(isDrawing) endDraw(true); 
             removeVirtualPenTip();
         }
@@ -1143,13 +1163,18 @@ button:active { transform: scale(0.92); }
     mc.addEventListener('touchmove', (e) => { 
         if(!isEditMode) return;
         if(e.touches.length === 1) {
+            e.preventDefault(); 
+            lastTouchEvent = e; // 更新最新的触摸事件
             if (isDrawing) {
-                e.preventDefault(); 
-                const latlng = getOffsetLatLng(e);
+                const latlng = getOffsetLatLng(lastTouchEvent, 'drawing');
                 moveDraw(latlng); 
+            } else if (isAiming) {
+                // 瞄准阶段：准星跟随手指移动，但不画线，保持蓝色
+                getOffsetLatLng(lastTouchEvent, 'aiming');
             }
         } else if (e.touches.length > 1) {
             // 一旦出现多指，立刻清除判定计时器并强制结束绘图
+            isAiming = false;
             if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
             if(isDrawing) endDraw(true);
             removeVirtualPenTip();
@@ -1158,6 +1183,7 @@ button:active { transform: scale(0.92); }
 
     mc.addEventListener('touchend', (e) => {
         if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+        isAiming = false;
         if (e.touches.length === 0) {
             if (isDrawing) endDraw(false);
             removeVirtualPenTip();
