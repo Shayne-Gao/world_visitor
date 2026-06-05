@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.35 (Schema v2.0)</div>
+    <div id="versionTag">v0.1.36 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -1045,6 +1045,48 @@ button:active { transform: scale(0.92); }
 
     const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); 
     let isDragging = false, isRightDragging = false; let lastX, lastY;
+    
+    // --- 移动端“笔尖偏移” (Y-Axis Offset) 与虚拟准星 UI ---
+    // 为了防止胖手指遮挡视线，当检测到触摸操作时，绘制落点强制向上偏移一个常数（例如 -40px）
+    const TOUCH_Y_OFFSET = -40;
+    let virtualPenTip = null; // 用于在屏幕上指示真正落点的虚拟准星
+
+    function updateVirtualPenTip(point) {
+        if (!virtualPenTip) {
+            virtualPenTip = document.createElement('div');
+            virtualPenTip.style.cssText = 'position:absolute; width:12px; height:12px; border:2px solid #28a745; border-radius:50%; pointer-events:none; z-index:9999; transform:translate(-50%, -50%); box-shadow:0 0 4px rgba(0,0,0,0.3);';
+            // 十字交叉线
+            virtualPenTip.innerHTML = '<div style="position:absolute; top:5px; left:-2px; width:12px; height:2px; background:#28a745;"></div><div style="position:absolute; top:-2px; left:5px; width:2px; height:12px; background:#28a745;"></div>';
+            mc.appendChild(virtualPenTip);
+        }
+        virtualPenTip.style.left = point.x + 'px';
+        virtualPenTip.style.top = point.y + 'px';
+    }
+    
+    function removeVirtualPenTip() {
+        if (virtualPenTip && virtualPenTip.parentNode) {
+            virtualPenTip.parentNode.removeChild(virtualPenTip);
+            virtualPenTip = null;
+        }
+    }
+
+    // 辅助函数：应用 Y 轴偏移并返回真实的经纬度落点
+    function getOffsetLatLng(touchEvent) {
+        const touch = touchEvent.touches ? touchEvent.touches[0] : touchEvent;
+        const rect = mc.getBoundingClientRect();
+        // 获取手指相对于 map 容器的原始像素坐标
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        // 施加 Y 轴偏移 (笔尖上移)
+        const targetPoint = new L.Point(x, y + TOUCH_Y_OFFSET);
+        
+        // 更新准星 UI
+        updateVirtualPenTip(targetPoint);
+        
+        // 返回最终落点的经纬度
+        return map.containerPointToLatLng(targetPoint);
+    }
 
     mc.addEventListener('mousedown', (e) => { 
         if (e.button === 0) {
@@ -1085,15 +1127,16 @@ button:active { transform: scale(0.92); }
 
         if(e.touches.length === 1) {
             // 延迟 60ms 判定，如果 60ms 内没有出现第二根手指，才开始绘图
-            const touch = e.touches[0];
-            const latlng = map.mouseEventToLatLng(touch);
+            const touchEvent = e;
             touchTimer = setTimeout(() => {
+                const latlng = getOffsetLatLng(touchEvent);
                 startDraw(latlng);
                 touchTimer = null;
             }, 60);
         } else {
             // 如果已经是多指，确保取消绘图
             if(isDrawing) endDraw(true); 
+            removeVirtualPenTip();
         }
     }, {passive: false});
 
@@ -1102,19 +1145,22 @@ button:active { transform: scale(0.92); }
         if(e.touches.length === 1) {
             if (isDrawing) {
                 e.preventDefault(); 
-                moveDraw(map.mouseEventToLatLng(e.touches[0])); 
+                const latlng = getOffsetLatLng(e);
+                moveDraw(latlng); 
             }
         } else if (e.touches.length > 1) {
             // 一旦出现多指，立刻清除判定计时器并强制结束绘图
             if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
             if(isDrawing) endDraw(true);
+            removeVirtualPenTip();
         }
     }, {passive: false});
 
     mc.addEventListener('touchend', (e) => {
         if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-        if (e.touches.length === 0 && isDrawing) {
-            endDraw(false);
+        if (e.touches.length === 0) {
+            if (isDrawing) endDraw(false);
+            removeVirtualPenTip();
         }
     });
 
