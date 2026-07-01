@@ -45,4 +45,20 @@ class JsBridge(
 
     @JavascriptInterface
     fun getNativeArchiveSummary(): String = trackStore.getArchiveSummaryJson()
+
+    @JavascriptInterface
+    fun getNativeArchiveTracks(): String = trackStore.getArchiveTracksJson()
+
+    @JavascriptInterface
+    fun getNativeRecoveryStatus(): String = trackStore.getRecoveryStatusJson()
+
+    @JavascriptInterface
+    fun recoverDraftAsTrack(): String {
+        val track = trackStore.recoverDraftAsTrack()
+        return if (track != null) {
+            """{"ok":true,"trackId":"${track.id}"}"""
+        } else {
+            """{"ok":false,"reason":"no_draft"}"""
+        }
+    }
 }

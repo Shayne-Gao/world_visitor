@@ -1,10 +1,13 @@
 package io.shayne.fogvisitor
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,6 +27,7 @@ class TrackingForegroundService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var trackStore: NativeTrackStore
     private var locationCallback: LocationCallback? = null
+    private var isExplicitStop = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,11 +48,14 @@ class TrackingForegroundService : Service() {
     private fun startInForeground() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-        trackStore.markTrackingRunning(true)
+        isExplicitStop = false
+        trackStore.markTrackingRequested(true)
+        trackStore.markTrackingRunning(true, shouldTrack = true)
         startLocationUpdates()
     }
 
     private fun stopSelfSafely() {
+        isExplicitStop = true
         stopLocationUpdates()
         trackStore.finalizeDraftToTrack()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -57,7 +64,17 @@ class TrackingForegroundService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        if (!isExplicitStop && trackStore.shouldTrack()) {
+            scheduleSelfRestart()
+        }
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (trackStore.shouldTrack()) {
+            scheduleSelfRestart()
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun buildNotification(): Notification {
@@ -101,7 +118,7 @@ class TrackingForegroundService : Service() {
         val callback = locationCallback ?: return
         fusedLocationClient.removeLocationUpdates(callback)
         locationCallback = null
-        trackStore.markTrackingRunning(false)
+        trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -120,6 +137,24 @@ class TrackingForegroundService : Service() {
             NotificationManager.IMPORTANCE_LOW
         )
         manager.createNotificationChannel(channel)
+    }
+
+    private fun scheduleSelfRestart() {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val restartIntent = Intent(this, TrackingForegroundService::class.java).apply {
+            action = ACTION_START
+        }
+        val pendingIntent = PendingIntent.getService(
+            this,
+            2001,
+            restartIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + 5_000L,
+            pendingIntent
+        )
     }
 
     companion object {

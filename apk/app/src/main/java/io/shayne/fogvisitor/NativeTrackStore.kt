@@ -24,6 +24,7 @@ class NativeTrackStore(private val context: Context) {
         writeDraftPoints(points)
         updateStatus(
             isTracking = true,
+            shouldTrack = true,
             draftPointCount = points.size,
             lastPointAt = System.currentTimeMillis()
         )
@@ -49,7 +50,12 @@ class NativeTrackStore(private val context: Context) {
         archive.add(track)
         writeArchiveTracks(archive)
         clearDraft()
-        updateStatus(isTracking = false, draftPointCount = 0, lastPointAt = System.currentTimeMillis())
+        updateStatus(
+            isTracking = false,
+            shouldTrack = false,
+            draftPointCount = 0,
+            lastPointAt = System.currentTimeMillis()
+        )
         return track
     }
 
@@ -141,11 +147,13 @@ class NativeTrackStore(private val context: Context) {
     fun getStatusJson(): String {
         val json = JSONObject().apply {
             put("isTracking", prefs.getBoolean(KEY_IS_TRACKING, false))
+            put("shouldTrack", prefs.getBoolean(KEY_SHOULD_TRACK, false))
             put("draftPointCount", prefs.getInt(KEY_DRAFT_COUNT, 0))
             put("lastPointAt", prefs.getLong(KEY_LAST_POINT_AT, 0L))
             put("trackCount", readArchiveTracks().size)
             put("archivePath", archiveFile.absolutePath)
             put("draftPath", draftFile.absolutePath)
+            put("hasRecoverableDraft", hasRecoverableDraft())
         }
         return json.toString()
     }
@@ -158,11 +166,53 @@ class NativeTrackStore(private val context: Context) {
             put("latestTimestamp", latestTimestamp)
             put("archiveExists", archiveFile.exists())
             put("draftExists", draftFile.exists())
+            put("hasRecoverableDraft", hasRecoverableDraft())
+            put("shouldTrack", shouldTrack())
         }.toString()
     }
 
-    fun markTrackingRunning(isRunning: Boolean) {
-        updateStatus(isTracking = isRunning, draftPointCount = readDraftPoints().size)
+    fun getArchiveTracksJson(): String {
+        val tracks = readArchiveTracks()
+        return JSONArray().apply {
+            tracks.sortedByDescending { it.timestamp }.forEach { track ->
+                put(trackToJson(it))
+            }
+        }.toString()
+    }
+
+    fun markTrackingRunning(isRunning: Boolean, shouldTrack: Boolean = prefs.getBoolean(KEY_SHOULD_TRACK, false)) {
+        updateStatus(
+            isTracking = isRunning,
+            shouldTrack = shouldTrack,
+            draftPointCount = readDraftPoints().size
+        )
+    }
+
+    fun markTrackingRequested(shouldTrack: Boolean) {
+        updateStatus(
+            isTracking = if (shouldTrack) prefs.getBoolean(KEY_IS_TRACKING, false) else false,
+            shouldTrack = shouldTrack,
+            draftPointCount = readDraftPoints().size
+        )
+    }
+
+    fun hasRecoverableDraft(): Boolean = readDraftPoints().isNotEmpty()
+
+    fun shouldTrack(): Boolean = prefs.getBoolean(KEY_SHOULD_TRACK, false)
+
+    fun recoverDraftAsTrack(): TrackRecord? = finalizeDraftToTrack(source = "android_recovered_track")
+
+    fun latestTrackTimestamp(): Long = readArchiveTracks().maxOfOrNull { it.timestamp } ?: 0L
+
+    fun hasArchive(): Boolean = archiveFile.exists()
+
+    fun getRecoveryStatusJson(): String {
+        return JSONObject().apply {
+            put("shouldTrack", shouldTrack())
+            put("hasRecoverableDraft", hasRecoverableDraft())
+            put("draftPointCount", readDraftPoints().size)
+            put("latestTrackTimestamp", latestTrackTimestamp())
+        }.toString()
     }
 
     private fun writeArchiveTracks(tracks: List<TrackRecord>) {
@@ -195,9 +245,15 @@ class NativeTrackStore(private val context: Context) {
         draftFile.writeText(array.toString())
     }
 
-    private fun updateStatus(isTracking: Boolean, draftPointCount: Int, lastPointAt: Long? = null) {
+    private fun updateStatus(
+        isTracking: Boolean,
+        shouldTrack: Boolean,
+        draftPointCount: Int,
+        lastPointAt: Long? = null
+    ) {
         prefs.edit().apply {
             putBoolean(KEY_IS_TRACKING, isTracking)
+            putBoolean(KEY_SHOULD_TRACK, shouldTrack)
             putInt(KEY_DRAFT_COUNT, draftPointCount)
             if (lastPointAt != null) putLong(KEY_LAST_POINT_AT, lastPointAt)
         }.apply()
@@ -235,6 +291,7 @@ class NativeTrackStore(private val context: Context) {
     companion object {
         private const val PREF_NAME = "fog_visitor_native_tracking"
         private const val KEY_IS_TRACKING = "is_tracking"
+        private const val KEY_SHOULD_TRACK = "should_track"
         private const val KEY_DRAFT_COUNT = "draft_count"
         private const val KEY_LAST_POINT_AT = "last_point_at"
         private const val KEY_CREATED_AT = "archive_created_at"

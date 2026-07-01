@@ -39,6 +39,20 @@
       border-radius: 12px;
       margin-top: 12px;
     }
+    .track-list {
+      margin-top: 12px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 12px;
+    }
+    .track-item {
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .track-item:last-child {
+      border-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -50,10 +64,14 @@
     <button onclick="showStatus()">读取原生记录状态</button>
     <button onclick="showArchive()">读取原生轨迹存档 JSON</button>
     <button onclick="showSummary()">读取原生存档摘要</button>
+    <button onclick="showRecovery()">读取恢复状态</button>
     <button onclick="exportArchive()">导出原生存档到下载目录</button>
     <button onclick="replaceWithSample()">用示例 JSON 覆盖导入</button>
     <button onclick="mergeWithSample()">用示例 JSON 合并导入</button>
+    <button onclick="recoverDraft()">将未完成草稿恢复成轨迹</button>
+    <button onclick="renderTracks()">渲染原生轨迹列表</button>
     <pre id="output">等待原生状态...</pre>
+    <div class="track-list" id="trackList">轨迹列表尚未加载</div>
   </div>
   <script>
     const sampleArchive = JSON.stringify({
@@ -82,6 +100,9 @@
     function showSummary() {
       document.getElementById('output').textContent = AndroidBridge.getNativeArchiveSummary();
     }
+    function showRecovery() {
+      document.getElementById('output').textContent = AndroidBridge.getNativeRecoveryStatus();
+    }
     function exportArchive() {
       document.getElementById('output').textContent = AndroidBridge.exportNativeArchiveToDownloads();
     }
@@ -91,7 +112,32 @@
     function mergeWithSample() {
       document.getElementById('output').textContent = AndroidBridge.importNativeArchiveJson(sampleArchive, true);
     }
+    function recoverDraft() {
+      document.getElementById('output').textContent = AndroidBridge.recoverDraftAsTrack();
+    }
+    function renderTracks() {
+      const raw = AndroidBridge.getNativeArchiveTracks();
+      const tracks = JSON.parse(raw);
+      const el = document.getElementById('trackList');
+      if (!tracks.length) {
+        el.textContent = '当前没有原生轨迹';
+        return;
+      }
+      el.innerHTML = tracks.map(track => {
+        const d = new Date(track.timestamp);
+        return `
+          <div class="track-item">
+            <div><strong>${track.id}</strong></div>
+            <div>来源: ${track.source}</div>
+            <div>时间: ${d.toLocaleString()}</div>
+            <div>画笔: ${track.brushRadiusKm} km</div>
+            <div>bbox: ${track.bbox ? track.bbox.join(', ') : 'none'}</div>
+          </div>
+        `;
+      }).join('');
+    }
     showStatus();
+    renderTracks();
   </script>
 </body>
 </html>
