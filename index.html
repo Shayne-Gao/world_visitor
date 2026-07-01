@@ -36,7 +36,7 @@ button:active { transform: scale(0.92); }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
-#versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+#versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
 #rightSideTools { position: absolute; bottom: 90px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 15px; align-items: center; }
 #markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag">v0.1.38 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.39 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -500,6 +500,19 @@ button:active { transform: scale(0.92); }
         return JSON.parse(JSON.stringify(data));
     }
 
+    function summarizeStoredData(data) {
+        if (!data || typeof data !== 'object') return null;
+        return {
+            version: data.version || null,
+            createdAt: data.metadata && data.metadata.createdAt ? data.metadata.createdAt : null,
+            totalAreaKm2: data.metadata && typeof data.metadata.totalAreaKm2 === 'number' ? data.metadata.totalAreaKm2 : null,
+            trackCount: data.sourceOfTruth && Array.isArray(data.sourceOfTruth.tracks) ? data.sourceOfTruth.tracks.length : 0,
+            hasGlobalFog: !!(data.renderCache && data.renderCache.globalFog),
+            hasGlobalExplored: !!(data.renderCache && data.renderCache.globalExplored),
+            dailyKeys: data.renderCache && data.renderCache.dailyExplored ? Object.keys(data.renderCache.dailyExplored).length : 0
+        };
+    }
+
     const DataManager = {
         async writeDiagnostic(reason, extra = {}) {
             try {
@@ -768,6 +781,80 @@ button:active { transform: scale(0.92); }
         await recoverDraft();
     }
     localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
+
+    async function exportDiagnosticInfo() {
+        const primary = await DataManager.loadPrimary();
+        const snapshot = await DataManager.loadSnapshot();
+        const draft = await localforage.getItem(DRAFT_KEY).catch(() => null);
+        const diagnostic = await DataManager.readDiagnostic();
+
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            appVersion: 'v0.1.39',
+            origin: location.origin,
+            href: location.href,
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            platform: navigator.platform || null,
+            storage: {
+                storageKey: STORAGE_KEY,
+                snapshotKey: SNAPSHOT_KEY,
+                diagnosticKey: DIAGNOSTIC_KEY,
+                draftKey: DRAFT_KEY,
+                primaryExists: !!primary,
+                primaryValid: isValidAppData(primary),
+                primarySummary: summarizeStoredData(primary),
+                snapshotExists: !!snapshot,
+                snapshotValid: isValidAppData(snapshot),
+                snapshotSummary: summarizeStoredData(snapshot),
+                draftExists: Array.isArray(draft) ? draft.length > 0 : !!draft,
+                draftPointCount: Array.isArray(draft) ? draft.length : 0,
+                diagnostic: diagnostic || null
+            },
+            preferences: {
+                lastLayer: localStorage.getItem('fog_last_layer') || null
+            }
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+        const a = document.createElement('a');
+        const d = new Date();
+        const p = n => n.toString().padStart(2, '0');
+        a.href = URL.createObjectURL(blob);
+        a.download = `fog_diagnostic_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        alert('已导出诊断信息，请把这个 JSON 文件发给我排查。');
+    }
+
+    (() => {
+        const versionTag = document.getElementById('versionTag');
+        let diagnosticPressTimer = null;
+        const triggerDelay = 1000;
+
+        const startPress = (e) => {
+            if (diagnosticPressTimer) clearTimeout(diagnosticPressTimer);
+            diagnosticPressTimer = setTimeout(() => {
+                diagnosticPressTimer = null;
+                exportDiagnosticInfo();
+            }, triggerDelay);
+        };
+
+        const cancelPress = () => {
+            if (diagnosticPressTimer) {
+                clearTimeout(diagnosticPressTimer);
+                diagnosticPressTimer = null;
+            }
+        };
+
+        versionTag.addEventListener('mousedown', startPress);
+        versionTag.addEventListener('touchstart', startPress, {passive: true});
+        versionTag.addEventListener('mouseup', cancelPress);
+        versionTag.addEventListener('mouseleave', cancelPress);
+        versionTag.addEventListener('touchend', cancelPress);
+        versionTag.addEventListener('touchcancel', cancelPress);
+        versionTag.addEventListener('touchmove', cancelPress, {passive: true});
+    })();
 
     function updateCursor() { 
         if (!isEditMode) { 
