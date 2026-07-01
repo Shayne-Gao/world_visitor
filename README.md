@@ -4,6 +4,15 @@
 
 ---
 
+## [v0.1.41] - 2026-04-24
+### 📱 APK Track (Android 开发线初始化)
+* **新增独立 `apk/` 工程目录**：为了与当前 `index.html` 版网页完全隔离，新增了一个独立的 Android APK 开发目录，用于承载后续原生后台定位服务、WebView 壳和 APK 打包流程。
+* **完成 Android 原型工程骨架**：已初始化 `settings.gradle.kts`、根级 `build.gradle.kts`、`app/build.gradle.kts`、`AndroidManifest.xml`、基础资源文件，以及 `MainActivity`、`TrackingForegroundService`、`JsBridge`、`TrackModels` 等核心原型代码。
+* **确定 B 方案落地起点**：当前原型采用“原生 Android 工程 + WebView 壳 + 前台服务骨架 + JS Bridge”的路线，为后续把后台持续定位、离线记录和与 PC 端共用数据结构的能力真正接起来做准备。
+* **当前限制**：本机暂时缺少 Java Runtime，因此本轮尚未直接编译出 APK；但工程目录和代码骨架已经可继续在有 Android SDK/JDK 的环境中接力开发与打包。
+
+---
+
 ## [v0.1.40] - 2026-04-24
 ### 🐛 Bug Fixes (导入修复)
 * **修复导入/合并旧存档时报错 `mainToggle is not defined`**：此前导入与深度合并流程里残留了旧版本 UI 重构前的变量引用，导致一旦进入合并进度显示就会直接抛出异常。现已全部切换为当前的按钮状态更新机制，恢复旧存档与合并存档均可正常执行。
