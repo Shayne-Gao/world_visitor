@@ -35,4 +35,14 @@ class JsBridge(
 
     @JavascriptInterface
     fun exportNativeArchiveJson(): String = trackStore.exportArchiveJson()
+
+    @JavascriptInterface
+    fun exportNativeArchiveToDownloads(): String = trackStore.exportArchiveToDownloads()
+
+    @JavascriptInterface
+    fun importNativeArchiveJson(rawJson: String, merge: Boolean): String =
+        trackStore.importArchiveJson(rawJson, merge)
+
+    @JavascriptInterface
+    fun getNativeArchiveSummary(): String = trackStore.getArchiveSummaryJson()
 }

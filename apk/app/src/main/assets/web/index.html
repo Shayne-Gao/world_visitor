@@ -49,14 +49,47 @@
     <button onclick="AndroidBridge.stopBackgroundTracking()">停止原生后台记录</button>
     <button onclick="showStatus()">读取原生记录状态</button>
     <button onclick="showArchive()">读取原生轨迹存档 JSON</button>
+    <button onclick="showSummary()">读取原生存档摘要</button>
+    <button onclick="exportArchive()">导出原生存档到下载目录</button>
+    <button onclick="replaceWithSample()">用示例 JSON 覆盖导入</button>
+    <button onclick="mergeWithSample()">用示例 JSON 合并导入</button>
     <pre id="output">等待原生状态...</pre>
   </div>
   <script>
+    const sampleArchive = JSON.stringify({
+      version: "2.0.0",
+      metadata: { totalAreaKm2: 0, createdAt: Date.now() },
+      sourceOfTruth: {
+        tracks: [
+          {
+            id: "sample_track_1",
+            timestamp: Date.now(),
+            source: "android_sample_import",
+            brushRadiusKm: 0.02,
+            encodedPath: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+            bbox: [-120.2, 38.5, -126.453, 43.252]
+          }
+        ]
+      }
+    }, null, 2);
+
     function showStatus() {
       document.getElementById('output').textContent = AndroidBridge.getNativeTrackingStatus();
     }
     function showArchive() {
       document.getElementById('output').textContent = AndroidBridge.exportNativeArchiveJson();
+    }
+    function showSummary() {
+      document.getElementById('output').textContent = AndroidBridge.getNativeArchiveSummary();
+    }
+    function exportArchive() {
+      document.getElementById('output').textContent = AndroidBridge.exportNativeArchiveToDownloads();
+    }
+    function replaceWithSample() {
+      document.getElementById('output').textContent = AndroidBridge.importNativeArchiveJson(sampleArchive, false);
+    }
+    function mergeWithSample() {
+      document.getElementById('output').textContent = AndroidBridge.importNativeArchiveJson(sampleArchive, true);
     }
     showStatus();
   </script>

@@ -1,9 +1,16 @@
 package io.shayne.fogvisitor
 
+import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class NativeTrackStore(private val context: Context) {
 
@@ -76,6 +83,61 @@ class NativeTrackStore(private val context: Context) {
         return archiveFile.readText()
     }
 
+    fun exportArchiveToDownloads(): String {
+        val json = exportArchiveJson()
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val fileName = "fog_apk_export_$timestamp.json"
+
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+
+        val resolver = context.contentResolver
+        val uri: Uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("无法创建导出文件")
+
+        resolver.openOutputStream(uri)?.use { stream ->
+            stream.write(json.toByteArray())
+        } ?: throw IllegalStateException("无法写入导出文件")
+
+        return uri.toString()
+    }
+
+    fun importArchiveJson(rawJson: String, merge: Boolean): String {
+        val parsed = JSONObject(rawJson)
+        val importedTracks = when {
+            parsed.optString("version") == "2.0.0" || parsed.optString("version") == "1.0.0" -> {
+                val tracks = parsed.getJSONObject("sourceOfTruth").getJSONArray("tracks")
+                (0 until tracks.length()).map { index -> trackFromJson(tracks.getJSONObject(index)) }
+            }
+            parsed.has("fog") -> {
+                throw IllegalArgumentException("当前 APK 原型阶段暂不支持仅 fog 渲染缓存格式，请先使用带 sourceOfTruth.tracks 的新格式存档。")
+            }
+            else -> throw IllegalArgumentException("无法识别的存档结构")
+        }
+
+        val finalTracks = if (merge) {
+            val map = linkedMapOf<String, TrackRecord>()
+            readArchiveTracks().forEach { track ->
+                map[track.id] = track
+            }
+            importedTracks.forEach { track ->
+                map.putIfAbsent(track.id, track)
+            }
+            map.values.sortedBy { it.timestamp }
+        } else {
+            importedTracks.sortedBy { it.timestamp }
+        }
+
+        writeArchiveTracks(finalTracks)
+        return JSONObject().apply {
+            put("mode", if (merge) "merge" else "replace")
+            put("trackCount", finalTracks.size)
+        }.toString()
+    }
+
     fun getStatusJson(): String {
         val json = JSONObject().apply {
             put("isTracking", prefs.getBoolean(KEY_IS_TRACKING, false))
@@ -86,6 +148,17 @@ class NativeTrackStore(private val context: Context) {
             put("draftPath", draftFile.absolutePath)
         }
         return json.toString()
+    }
+
+    fun getArchiveSummaryJson(): String {
+        val tracks = readArchiveTracks()
+        val latestTimestamp = tracks.maxOfOrNull { it.timestamp } ?: 0L
+        return JSONObject().apply {
+            put("trackCount", tracks.size)
+            put("latestTimestamp", latestTimestamp)
+            put("archiveExists", archiveFile.exists())
+            put("draftExists", draftFile.exists())
+        }.toString()
     }
 
     fun markTrackingRunning(isRunning: Boolean) {
