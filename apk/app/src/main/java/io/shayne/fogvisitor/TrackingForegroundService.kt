@@ -1,17 +1,37 @@
 package io.shayne.fogvisitor
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 class TrackingForegroundService : Service() {
 
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var trackStore: NativeTrackStore
+    private var locationCallback: LocationCallback? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        trackStore = NativeTrackStore(this)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -24,16 +44,20 @@ class TrackingForegroundService : Service() {
     private fun startInForeground() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-
-        // TODO:
-        // 1. 接入 FusedLocationProviderClient
-        // 2. 将轨迹点写入与 Web 版本兼容的数据结构
-        // 3. 将缓存/存储层从 WebView 独立出来
+        trackStore.markTrackingRunning(true)
+        startLocationUpdates()
     }
 
     private fun stopSelfSafely() {
+        stopLocationUpdates()
+        trackStore.finalizeDraftToTrack()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    override fun onDestroy() {
+        stopLocationUpdates()
+        super.onDestroy()
     }
 
     private fun buildNotification(): Notification {
@@ -43,6 +67,48 @@ class TrackingForegroundService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .build()
+    }
+
+    private fun startLocationUpdates() {
+        if (!hasLocationPermission()) return
+        if (locationCallback != null) return
+
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
+            .setMinUpdateDistanceMeters(10f)
+            .setWaitForAccurateLocation(false)
+            .setMinUpdateIntervalMillis(5_000L)
+            .build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { location ->
+                    trackStore.appendDraftPoint(
+                        lng = location.longitude,
+                        lat = location.latitude
+                    )
+                }
+            }
+        }
+
+        fusedLocationClient.requestLocationUpdates(
+            request,
+            locationCallback as LocationCallback,
+            Looper.getMainLooper()
+        )
+    }
+
+    private fun stopLocationUpdates() {
+        val callback = locationCallback ?: return
+        fusedLocationClient.removeLocationUpdates(callback)
+        locationCallback = null
+        trackStore.markTrackingRunning(false)
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun createNotificationChannel() {

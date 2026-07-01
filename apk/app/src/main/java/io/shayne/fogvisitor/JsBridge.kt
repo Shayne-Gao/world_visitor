@@ -10,6 +10,8 @@ class JsBridge(
     private val onStopTracking: () -> Unit
 ) {
 
+    private val trackStore by lazy { NativeTrackStore(context) }
+
     @JavascriptInterface
     fun startBackgroundTracking() {
         onStartTracking.invoke()
@@ -27,4 +29,10 @@ class JsBridge(
 
     @JavascriptInterface
     fun getAppFlavor(): String = "android-apk-shell"
+
+    @JavascriptInterface
+    fun getNativeTrackingStatus(): String = trackStore.getStatusJson()
+
+    @JavascriptInterface
+    fun exportNativeArchiveJson(): String = trackStore.exportArchiveJson()
 }

@@ -4,6 +4,15 @@
 
 ---
 
+## [v0.1.42] - 2026-04-24
+### 📱 APK Track (后台记录链路打通 - 第一阶段)
+* **原生前台服务接入真实定位回调**：`TrackingForegroundService` 已从纯骨架升级为可实际请求 Android 定位更新的版本，基于 `FusedLocationProviderClient` 以高精度模式按时间/距离阈值持续采样，为后续锁屏与后台持续记录打通主干链路。
+* **新增原生轨迹存储层**：增加 `NativeTrackStore`，将 APK 端轨迹从 WebView 状态中解耦出来。当前会在后台服务运行期间持续写入本地草稿点，停止时自动固化为与网页兼容的 `TrackRecord` 结构，并保存为独立 JSON 存档。
+* **新增 Polyline 编码与 bbox 计算**：增加 `PolylineCodec`，在原生侧直接生成与网页端相同风格的 `encodedPath` 与 `bbox` 字段，确保未来 APK 导出的数据可以自然向 PC 端网页靠拢。
+* **桥接层补充状态读取能力**：`JsBridge` 已支持从 WebView 读取原生 tracking status 与当前原生轨迹存档 JSON，APK 本地 `assets` 原型页面也补充了对应调试按钮，便于后续联调。
+
+---
+
 ## [v0.1.41] - 2026-04-24
 ### 📱 APK Track (Android 开发线初始化)
 * **新增独立 `apk/` 工程目录**：为了与当前 `index.html` 版网页完全隔离，新增了一个独立的 Android APK 开发目录，用于承载后续原生后台定位服务、WebView 壳和 APK 打包流程。
