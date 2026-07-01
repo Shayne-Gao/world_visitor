@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.39 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.40 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -1410,7 +1410,7 @@ button:active { transform: scale(0.92); }
                 alert("恢复成功！");
             } else {
                 updateMainBtnUI('processing');
-                mainToggle.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
+                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
                 
                 // 1. 全局去重与排序
                 const existingTracks = appData.sourceOfTruth.tracks;
@@ -1476,7 +1476,7 @@ button:active { transform: scale(0.92); }
                         if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
                     }
                     
-                    if(i % 50 === 0) { mainToggle.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+                    if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
                 }
 
                 // 3. 最终数据同步
