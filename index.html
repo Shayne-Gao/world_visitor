@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag">v0.1.37 (Schema v2.0)</div>
+     <div id="versionTag">v0.1.38 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -202,7 +202,7 @@ button:active { transform: scale(0.92); }
             <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 恢复存档 (覆盖)</button>
             <button id="mergeBtn" class="sub-btn"><i class="fa-solid fa-code-merge"></i> 合并存档 (追加)</button>
             <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
-            <input type="file" id="importFile" accept=".json,.fogbak,.gz" style="display:none;">
+            <input type="file" id="importFile" style="display:none;">
         </div>
     </div>
 </div>
@@ -481,11 +481,83 @@ button:active { transform: scale(0.92); }
     };
 
     const STORAGE_KEY = 'fog_of_world_data_v5'; 
+    const SNAPSHOT_KEY = 'fog_of_world_last_good_snapshot_v1';
+    const DIAGNOSTIC_KEY = 'fog_of_world_storage_diagnostic_v1';
     const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
     let appData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
 
-    const DataManager = { async loadData(){ try{return await localforage.getItem(STORAGE_KEY);}catch(e){return null;} }, async saveData(data){ try{await localforage.setItem(STORAGE_KEY, data);}catch(e){} } };
+    function isValidAppData(data) {
+        if (!data || typeof data !== 'object') return false;
+        const validVersion = data.version === "1.0.0" || data.version === "2.0.0";
+        const hasTracks = !!(data.sourceOfTruth && Array.isArray(data.sourceOfTruth.tracks));
+        const hasRenderCache = !!(data.renderCache && typeof data.renderCache === 'object');
+        const hasMetadata = !!(data.metadata && typeof data.metadata === 'object');
+        return validVersion && hasTracks && hasRenderCache && hasMetadata;
+    }
+
+    function cloneData(data) {
+        return JSON.parse(JSON.stringify(data));
+    }
+
+    const DataManager = {
+        async writeDiagnostic(reason, extra = {}) {
+            try {
+                await localforage.setItem(DIAGNOSTIC_KEY, {
+                    reason,
+                    origin: location.origin,
+                    href: location.href,
+                    at: Date.now(),
+                    extra
+                });
+            } catch (e) {}
+        },
+        async readDiagnostic() {
+            try { return await localforage.getItem(DIAGNOSTIC_KEY); } catch (e) { return null; }
+        },
+        async clearDiagnostic() {
+            try { await localforage.removeItem(DIAGNOSTIC_KEY); } catch (e) {}
+        },
+        async loadPrimary() {
+            try { return await localforage.getItem(STORAGE_KEY); } catch (e) { return null; }
+        },
+        async loadSnapshot() {
+            try { return await localforage.getItem(SNAPSHOT_KEY); } catch (e) { return null; }
+        },
+        async loadData() {
+            const primary = await this.loadPrimary();
+            if (isValidAppData(primary)) {
+                return { data: primary, source: 'primary' };
+            }
+
+            if (primary && primary.fog) {
+                return { data: primary, source: 'primary_legacy' };
+            }
+
+            if (primary) {
+                await this.writeDiagnostic('primary_invalid', { keys: Object.keys(primary || {}) });
+            }
+
+            const snapshot = await this.loadSnapshot();
+            if (isValidAppData(snapshot)) {
+                await this.writeDiagnostic(primary ? 'recovered_from_snapshot_after_invalid_primary' : 'recovered_from_snapshot_after_missing_primary');
+                return { data: snapshot, source: 'snapshot' };
+            }
+
+            return { data: null, source: 'empty' };
+        },
+        async saveData(data) {
+            if (!isValidAppData(data)) {
+                await this.writeDiagnostic('save_rejected_invalid_payload');
+                throw new Error('存档结构异常，已阻止写入以保护现有数据');
+            }
+
+            const safeData = cloneData(data);
+            await localforage.setItem(STORAGE_KEY, safeData);
+            await localforage.setItem(SNAPSHOT_KEY, safeData);
+            await this.clearDiagnostic();
+        }
+    };
 
     let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
     let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
@@ -634,7 +706,8 @@ button:active { transform: scale(0.92); }
     }
 
     async function initData() {
-        let loadedData = await DataManager.loadData();
+        const loadResult = await DataManager.loadData();
+        let loadedData = loadResult.data;
         if(loadedData && (loadedData.version === "1.0.0" || loadedData.version === "2.0.0")) { 
             appData = loadedData; 
             if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; 
@@ -649,6 +722,10 @@ button:active { transform: scale(0.92); }
                 appData.version = "2.0.0";
                 await DataManager.saveData(appData);
             }
+
+            if (loadResult.source === 'snapshot') {
+                alert('检测到主存档异常或缺失，系统已自动从“最后一次有效快照”恢复数据。建议你立即导出一份存档备份。');
+            }
         } 
         else if (loadedData && loadedData.fog) { 
             appData.version = "2.0.0";
@@ -658,7 +735,13 @@ button:active { transform: scale(0.92); }
             appData.metadata.totalAreaKm2 = calcTotalArea(); 
             await DataManager.saveData(appData); 
         } 
-        else { appData.renderCache.globalFog = turf.polygon(worldCoords); }
+        else {
+            const diagnostic = await DataManager.readDiagnostic();
+            appData.renderCache.globalFog = turf.polygon(worldCoords);
+            if (diagnostic) {
+                alert('未读取到可用本地存档，当前显示为空白世界。\n可能原因：域名/协议变化、浏览器清理站点数据、主存档损坏。\n系统没有找到可恢复的快照。\n建议先检查当前访问域名，并尝试导入之前导出的存档。');
+            }
+        }
         if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
 
         updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); 
