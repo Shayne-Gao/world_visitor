@@ -133,31 +133,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun injectNativeArchiveSync(webView: WebView) {
-        val safeTopPx = dpToPx(56)
         val script = """
             (async function () {
               if (!window.AndroidBridge || !window.localforage) return;
               if (window.__fogNativeSyncInstalled) return;
               window.__fogNativeSyncInstalled = true;
-
-              const safeTopPx = $safeTopPx;
-
-              const injectSafeAreaStyle = () => {
-                if (document.getElementById('apk-safe-area-style')) return;
-                const style = document.createElement('style');
-                style.id = 'apk-safe-area-style';
-                style.textContent = `
-                  #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
-                    top: ${safeTopPx}px !important;
-                  }
-                  @media (max-width: 640px) {
-                    #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
-                      top: ${safeTopPx}px !important;
-                    }
-                  }
-                `;
-                document.head.appendChild(style);
-              };
 
               const normalizeNativeArchiveForWeb = (archive) => {
                 archive.metadata = archive.metadata || { totalAreaKm2: 0, createdAt: Date.now() };
@@ -216,16 +196,7 @@ class MainActivity : AppCompatActivity() {
               };
 
               try {
-                injectSafeAreaStyle();
-                const replaced = await syncNativeArchiveToLocal();
-                if (replaced) {
-                  sessionStorage.setItem('fog_native_bootstrap_done', '1');
-                  if (!sessionStorage.getItem('fog_native_bootstrap_reloaded')) {
-                    sessionStorage.setItem('fog_native_bootstrap_reloaded', '1');
-                    location.reload();
-                    return;
-                  }
-                }
+                await syncNativeArchiveToLocal();
 
                 const installSaveHook = () => {
                   if (!window.DataManager || !window.DataManager.saveData || window.__fogSaveHookInstalled) return false;
@@ -442,11 +413,4 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun dpToPx(dp: Int): Int {
-        return TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP,
-            dp.toFloat(),
-            resources.displayMetrics
-        ).toInt()
-    }
 }

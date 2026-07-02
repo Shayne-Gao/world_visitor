@@ -14,7 +14,7 @@ button { border: none; cursor: pointer; outline: none; transition: all 0.15s eas
 button:active { transform: scale(0.92); }
 .hidden { display: none !important; }
 
-#statsPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; transition: all 0.3s ease; }
+#statsPanel { position: absolute; top: 46px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; transition: all 0.3s ease; }
 #statsHeader { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8f9fa; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px; margin-bottom: 2px; }
 #statsContent { display: flex; flex-direction: column; gap: 8px; overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease; max-height: 250px; opacity: 1; }
 #statsContent.collapsed { max-height: 0; opacity: 0; margin: 0; }
@@ -26,10 +26,10 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
-#trackingStatusPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 10px 16px; border-radius: 20px; color: #fff; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
+#trackingStatusPanel { position: absolute; top: 46px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 10px 16px; border-radius: 20px; color: #fff; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; }
 
-#topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
+#topRightArea { position: absolute; top: 46px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
 .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
 #subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
@@ -116,21 +116,21 @@ button:active { transform: scale(0.92); }
 .slide-thumb { position: absolute; left: 4px; top: 4px; width: 44px; height: 44px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 2px solid #222; }
 .slide-thumb i { font-size: 20px; text-shadow: none; }
 
-#searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
+#searchContainer { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
 #searchContainer i { color: #666; font-size: 14px; }
 #searchInput { border: none; outline: none; background: transparent; flex: 1; font-size: 14px; color: #333; }
 #searchBtn { background: #007bff; color: white; padding: 6px 12px; border-radius: 15px; font-size: 12px; font-weight: bold; }
 #searchBtn:hover { background: #0056b3; }
 
 @media (max-width: 650px) {
-    #statsPanel { top: 10px; left: 10px; min-width: 135px; padding: 10px 12px; }
+    #statsPanel { top: 46px; left: 10px; min-width: 135px; padding: 10px 12px; }
     #statsPanel.minimized { width: 44px; min-width: unset; height: 44px; padding: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
     #statsPanel.minimized #statsHeader span { display: none; }
     #statsPanel.minimized #statsToggleBtn { display: none; }
     #statsPanel.minimized #statsContent { display: none; }
     #statsPanel.minimized::before { content: '\f0ac'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: #007bff; font-size: 18px; }
 
-    #topRightArea { top: 10px; right: 10px; }
+    #topRightArea { top: 46px; right: 10px; }
     .icon-btn { width: 38px; height: 38px; font-size: 16px; }
     #subMenu { top: 48px; }
     .stat-row { gap: 12px; }
@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.44 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.45 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -532,7 +532,15 @@ button:active { transform: scale(0.92); }
             try { await localforage.removeItem(DIAGNOSTIC_KEY); } catch (e) {}
         },
         async loadPrimary() {
-            try { return await localforage.getItem(STORAGE_KEY); } catch (e) { return null; }
+            try {
+                const localPrimary = await localforage.getItem(STORAGE_KEY);
+                if (localPrimary) return localPrimary;
+                if (window.AndroidBridge && location.protocol === 'file:') {
+                    const raw = AndroidBridge.exportNativeArchiveJson();
+                    if (raw) return JSON.parse(raw);
+                }
+                return null;
+            } catch (e) { return null; }
         },
         async loadSnapshot() {
             try { return await localforage.getItem(SNAPSHOT_KEY); } catch (e) { return null; }
@@ -790,7 +798,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.44',
+            appVersion: 'v0.1.45',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
