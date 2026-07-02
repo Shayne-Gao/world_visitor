@@ -4,6 +4,13 @@
 
 ---
 
+## [v0.1.48] - 2026-04-24
+### 🔤 APK Icon Loading (图标加载修复)
+* **新增本地图标字体覆盖层**：新增 `fontawesome-local.css`，用绝对 `file:///android_asset/...` 路径重新声明 `Font Awesome` 字体，避免某些 Android WebView 对相对 `webfonts` 路径解析不一致导致全部图标变成方块。
+* **放开本地文件 URL 访问策略**：在 WebView 设置中补充 `allowFileAccessFromFileURLs` 和 `allowUniversalAccessFromFileURLs`，提高本地图标字体与其他静态资源在 `file://` 场景下的可访问性。
+
+---
+
 ## [v0.1.47] - 2026-04-24
 ### 🧩 APK Startup Tuning (进一步启动调优)
 * **修复本地图标资源路径**：调整 `Font Awesome` 本地资源目录结构，使 CSS 中的 `webfonts` 相对路径恢复正确，解决图标无法显示的问题。
