@@ -22,7 +22,8 @@
             android:padding="10dp"
             android:text="@string/apk_shell_ready"
             android:textColor="#FFFFFFFF"
-            android:textSize="12sp" />
+            android:textSize="12sp"
+            android:visibility="gone" />
     </FrameLayout>
 
 </LinearLayout>

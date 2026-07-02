@@ -314,12 +314,16 @@ class NativeTrackStore(private val context: Context) {
             null
         }
 
+        val encodedPath = json.optString("encodedPath", "")
+        val timestamp = json.optLong("timestamp", System.currentTimeMillis())
+        val fallbackId = "trk_${timestamp}_${encodedPath.length}"
+
         return TrackRecord(
-            id = json.getString("id"),
-            timestamp = json.getLong("timestamp"),
+            id = json.optString("id", fallbackId).ifBlank { fallbackId },
+            timestamp = timestamp,
             source = json.optString("source", "android_background_track"),
             brushRadiusKm = json.optDouble("brushRadiusKm", 0.02),
-            encodedPath = json.getString("encodedPath"),
+            encodedPath = encodedPath,
             bbox = bbox
         )
     }

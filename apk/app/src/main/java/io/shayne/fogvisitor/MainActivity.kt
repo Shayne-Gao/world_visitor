@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -14,6 +16,8 @@ import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import io.shayne.fogvisitor.databinding.ActivityMainBinding
 
@@ -50,6 +54,7 @@ class MainActivity : AppCompatActivity() {
         nativeTrackStore = NativeTrackStore(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.statusBanner.visibility = View.GONE
 
         requestRuntimePermissions()
         setupWebView()
@@ -132,14 +137,71 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun injectNativeArchiveSync(webView: WebView) {
+        val safeTopPx = getStatusBarInsetPx()
         val script = """
             (async function () {
               if (!window.AndroidBridge || !window.localforage) return;
               if (window.__fogNativeSyncInstalled) return;
               window.__fogNativeSyncInstalled = true;
 
+              const safeTopPx = $safeTopPx;
+
+              const injectSafeAreaStyle = () => {
+                if (document.getElementById('apk-safe-area-style')) return;
+                const style = document.createElement('style');
+                style.id = 'apk-safe-area-style';
+                style.textContent = `
+                  #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
+                    top: ${safeTopPx + 15}px !important;
+                  }
+                  @media (max-width: 640px) {
+                    #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
+                      top: ${safeTopPx + 10}px !important;
+                    }
+                  }
+                `;
+                document.head.appendChild(style);
+              };
+
+              const normalizeNativeArchiveForWeb = (archive) => {
+                archive.metadata = archive.metadata || { totalAreaKm2: 0, createdAt: Date.now() };
+                archive.sourceOfTruth = archive.sourceOfTruth || { tracks: [] };
+                archive.renderCache = archive.renderCache || { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} };
+                archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
+                archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
+
+                if (archive.renderCache.globalFog || archive.renderCache.globalExplored) {
+                  return archive;
+                }
+
+                let cumulativeExplored = null;
+                const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+                for (const track of tracks) {
+                  if (!track || !track.encodedPath) continue;
+                  let coords = PolylineUtil.decode(track.encodedPath);
+                  if (!coords || !coords.length) continue;
+                  const radius = track.brushRadiusKm || 0.02;
+                  let mask;
+                  try {
+                    if (coords.length === 1) mask = turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' });
+                    else mask = turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
+                    cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
+                  } catch (e) {
+                    console.warn('Failed to rebuild track mask', e, track);
+                  }
+                }
+
+                archive.renderCache.globalExplored = cumulativeExplored;
+                archive.renderCache.globalFog = cumulativeExplored
+                  ? turf.difference(turf.polygon(worldCoords), cumulativeExplored)
+                  : turf.polygon(worldCoords);
+                archive.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
+                return archive;
+              };
+
               const syncNativeArchiveToLocal = async () => {
-                const nativeArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                const nativeArchive = normalizeNativeArchiveForWeb(JSON.parse(AndroidBridge.exportNativeArchiveJson()));
                 const nativeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
                 const current = await localforage.getItem('fog_of_world_data_v5');
                 const currentTrackCount = current?.sourceOfTruth?.tracks?.length || 0;
@@ -158,6 +220,7 @@ class MainActivity : AppCompatActivity() {
               };
 
               try {
+                injectSafeAreaStyle();
                 const replaced = await syncNativeArchiveToLocal();
                 if (replaced) {
                   sessionStorage.setItem('fog_native_bootstrap_done', '1');
@@ -381,5 +444,16 @@ class MainActivity : AppCompatActivity() {
     private fun hasForegroundLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun getStatusBarInsetPx(): Int {
+        val insets = ViewCompat.getRootWindowInsets(binding.root)
+        val top = insets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+        if (top > 0) return top
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            24f,
+            resources.displayMetrics
+        ).toInt()
     }
 }
