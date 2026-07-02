@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
@@ -16,8 +15,6 @@ import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import io.shayne.fogvisitor.databinding.ActivityMainBinding
 
@@ -94,6 +91,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectNativeArchiveSync(webView)
+                binding.statusBanner.visibility = View.GONE
             }
         }
         webView.webChromeClient = object : WebChromeClient() {

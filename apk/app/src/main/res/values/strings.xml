@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Fog Visitor APK</string>
     <string name="apk_shell_ready">APK 原型已启动：当前为 WebView 壳 + 原生后台服务骨架。</string>
+    <string name="apk_loading">正在加载本地资源...</string>
     <string name="tracking_notification_title">世界迷雾 APK 正在记录</string>
     <string name="tracking_notification_text">后台定位服务运行中</string>
 </resources>

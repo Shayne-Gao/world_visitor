@@ -3,9 +3,8 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>世界迷雾 Web Demo - 自动探索版</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+<link rel="stylesheet" href="./vendor/fontawesome/all.min.css">
 <style>
 body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;}
 #map{width:100%;height:100%;background:#000; touch-action:none;}
@@ -94,7 +93,7 @@ button:active { transform: scale(0.92); }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
 /* OLED 省电模式 (极致暗黑版 + 科幻电子表风) */
-#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: 'Orbitron', sans-serif; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
 #pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
 .pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
 .pocket-time { font-size: 24px; color: #555; font-weight: normal; letter-spacing: 2px; }
@@ -168,7 +167,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.45 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.46 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -259,9 +258,9 @@ button:active { transform: scale(0.92); }
     </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+<script src="./vendor/leaflet/leaflet.js"></script>
+<script src="./vendor/turf/turf.min.js"></script>
+<script src="./vendor/localforage/localforage.min.js"></script>
 
 <script>
     // 全局状态预定义
@@ -798,7 +797,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.45',
+            appVersion: 'v0.1.46',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

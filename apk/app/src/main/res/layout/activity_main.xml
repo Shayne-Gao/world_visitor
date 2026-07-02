@@ -16,14 +16,16 @@
 
         <TextView
             android:id="@+id/statusBanner"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#CC111827"
-            android:padding="10dp"
-            android:text="@string/apk_shell_ready"
+            android:layout_gravity="center"
+            android:background="#DD111827"
+            android:paddingHorizontal="18dp"
+            android:paddingVertical="12dp"
+            android:text="@string/apk_loading"
             android:textColor="#FFFFFFFF"
             android:textSize="12sp"
-            android:visibility="gone" />
+            android:visibility="visible" />
     </FrameLayout>
 
 </LinearLayout>
