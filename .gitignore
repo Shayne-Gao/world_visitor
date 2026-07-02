@@ -1,0 +1,10 @@
+.tooling/
+
+# Android / Gradle build outputs
+apk/.gradle/
+apk/build/
+apk/app/build/
+apk/local.properties
+
+# macOS
+.DS_Store

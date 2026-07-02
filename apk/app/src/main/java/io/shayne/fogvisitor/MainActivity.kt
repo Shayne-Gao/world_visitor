@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
+import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -16,6 +17,7 @@ import io.shayne.fogvisitor.databinding.ActivityMainBinding
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private var didInjectBridgeSync = false
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
@@ -59,7 +61,15 @@ class MainActivity : AppCompatActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                if (!didInjectBridgeSync) {
+                    didInjectBridgeSync = true
+                    injectNativeArchiveSync(webView)
+                }
+            }
+        }
         webView.webChromeClient = WebChromeClient()
         webView.addJavascriptInterface(
             JsBridge(
@@ -71,6 +81,64 @@ class MainActivity : AppCompatActivity() {
         )
 
         webView.loadUrl("file:///android_asset/web/index.html")
+    }
+
+    private fun injectNativeArchiveSync(webView: WebView) {
+        val script = """
+            (async function () {
+              if (!window.AndroidBridge || !window.localforage) return;
+              if (window.__fogNativeSyncInstalled) return;
+              window.__fogNativeSyncInstalled = true;
+
+              try {
+                const nativeArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                const nativeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                const current = await localforage.getItem('fog_of_world_data_v5');
+                const currentTrackCount = current?.sourceOfTruth?.tracks?.length || 0;
+                const currentLatestTimestamp = (current?.sourceOfTruth?.tracks || []).reduce((max, t) => Math.max(max, t.timestamp || 0), 0);
+
+                const shouldReplaceLocal =
+                  !current ||
+                  nativeSummary.trackCount > currentTrackCount ||
+                  nativeSummary.latestTimestamp > currentLatestTimestamp;
+
+                if (shouldReplaceLocal) {
+                  await localforage.setItem('fog_of_world_data_v5', nativeArchive);
+                  sessionStorage.setItem('fog_native_bootstrap_done', '1');
+                  if (!sessionStorage.getItem('fog_native_bootstrap_reloaded')) {
+                    sessionStorage.setItem('fog_native_bootstrap_reloaded', '1');
+                    location.reload();
+                    return;
+                  }
+                }
+
+                const installSaveHook = () => {
+                  if (!window.DataManager || !window.DataManager.saveData || window.__fogSaveHookInstalled) return false;
+                  const originalSave = window.DataManager.saveData.bind(window.DataManager);
+                  window.DataManager.saveData = async function(data) {
+                    await originalSave(data);
+                    try {
+                      AndroidBridge.importNativeArchiveJson(JSON.stringify(data), false);
+                    } catch (e) {
+                      console.warn('Native archive sync failed:', e);
+                    }
+                  };
+                  window.__fogSaveHookInstalled = true;
+                  return true;
+                };
+
+                if (!installSaveHook()) {
+                  const retry = setInterval(() => {
+                    if (installSaveHook()) clearInterval(retry);
+                  }, 500);
+                }
+              } catch (e) {
+                console.warn('Native bootstrap sync failed:', e);
+              }
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script, null)
     }
 
     private fun startNativeTrackingService() {

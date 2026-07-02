@@ -175,7 +175,7 @@ class NativeTrackStore(private val context: Context) {
         val tracks = readArchiveTracks()
         return JSONArray().apply {
             tracks.sortedByDescending { it.timestamp }.forEach { track ->
-                put(trackToJson(it))
+                put(trackToJson(track))
             }
         }.toString()
     }

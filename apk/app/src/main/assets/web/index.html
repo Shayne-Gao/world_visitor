@@ -1,143 +1,1521 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fog Visitor APK Shell</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f172a;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .card {
-      max-width: 420px;
-      padding: 24px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.08);
-      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
-    }
-    button {
-      margin-top: 12px;
-      width: 100%;
-      border: 0;
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-weight: 700;
-    }
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 12px;
-      background: rgba(255,255,255,0.06);
-      padding: 12px;
-      border-radius: 12px;
-      margin-top: 12px;
-    }
-    .track-list {
-      margin-top: 12px;
-      background: rgba(255,255,255,0.06);
-      border-radius: 12px;
-      padding: 12px;
-      font-size: 12px;
-    }
-    .track-item {
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-    }
-    .track-item:last-child {
-      border-bottom: 0;
-    }
-  </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>世界迷雾 Web Demo - 自动探索版</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body,html{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;}
+#map{width:100%;height:100%;background:#000; touch-action:none;}
+.btn-shadow { box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); }
+button { border: none; cursor: pointer; outline: none; transition: all 0.15s ease; display:flex; justify-content:center; align-items:center; }
+button:active { transform: scale(0.92); }
+.hidden { display: none !important; }
+
+#statsPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 12px; color: #fff; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255,255,255,0.1); min-width: 160px; pointer-events: auto; transition: all 0.3s ease; }
+#statsHeader { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8f9fa; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px; margin-bottom: 2px; }
+#statsContent { display: flex; flex-direction: column; gap: 8px; overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease; max-height: 250px; opacity: 1; }
+#statsContent.collapsed { max-height: 0; opacity: 0; margin: 0; }
+.stat-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.stat-label { font-size: 11px; color: #9ca3af; font-weight: 600; max-width: 90px; word-break: break-word; line-height: 1.2; }
+.stat-val { font-size: 13px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.stat-val.global { color: #4ade80; }  
+.stat-val.country { color: #60a5fa; } 
+.stat-val.city { color: #c084fc; }    
+.stat-val.district { color: #facc15; }
+
+#trackingStatusPanel { position: absolute; top: 15px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 10px 16px; border-radius: 20px; color: #fff; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
+#trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; }
+
+#topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
+.menu-group { position: relative; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
+#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
+.sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
+.sub-btn.danger { background: #ffebee; color: #dc3545; }
+
+#versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
+#rightSideTools { position: absolute; bottom: 90px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+#markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+#baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.brush-group { background: rgba(255,255,255,0.95); border-radius: 25px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.brush-btn { width: 34px; height: 34px; border-radius: 50%; background: transparent; font-size: 12px; font-weight: bold; color: #666; }
+.brush-btn.active { background: #28a745; color: white; }
+.undo-btn { background: #ffc107; color: #000; font-size: 18px; }
+
+.pill-btn { border-radius: 22px; background: rgba(255,255,255,0.95); padding: 8px 16px; font-size: 13px; font-weight: bold; color: #007bff; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); cursor: pointer; border: none; }
+.pill-btn:hover { background: #fff; transform: translateY(-2px); }
+.pill-btn:active { transform: translateY(1px); }
+
+#timelineContainer { position: absolute; bottom: 90px; right: 74px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 10px 15px; border-radius: 15px; width: 240px; display: flex; flex-direction: column; gap: 8px; align-items: center; transform: translateX(100%); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease; pointer-events: none; }
+#timelineContainer.expanded { transform: translateX(0); opacity: 1; pointer-events: auto; }
+#timelineLabel { font-size: 12px; font-weight: bold; color: #444; }
+#timelineSlider { width: 100%; accent-color: #007bff; margin: 0; cursor: pointer; }
+
+#mainToggleContainer { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; border-radius: 30px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border: 1px solid #eaeaea; background: #fff; overflow: hidden; transition: all 0.3s ease; }
+#mainToggleContainer:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.2); transform: translateX(-50%) translateY(-2px); }
+
+.split-btn { background: transparent; border: none; padding: 10px 0; font-size: 14px; font-weight: 600; color: #333; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.split-btn i { font-size: 15px; }
+
+/* 70% 自动追踪区域 */
+#autoTrackBtn { width: 140px; border-right: 1px solid #eaeaea; }
+#autoTrackBtn i { color: #28a745; }
+#autoTrackBtn:hover { background: #f8f9fa; }
+#autoTrackBtn:active { background: #e9ecef; }
+
+/* 30% 手动标记区域 */
+#manualDrawBtn { width: 80px; }
+#manualDrawBtn i { color: #007bff; }
+#manualDrawBtn:hover { background: #f8f9fa; }
+#manualDrawBtn:active { background: #e9ecef; }
+
+/* 统一的结束按钮状态 (占满100%) */
+#endActionBtn { width: 220px; background: #dc3545; color: white; display: none; }
+#endActionBtn i { color: white; }
+#endActionBtn:hover { background: #c82333; }
+
+/* 自动追踪时的 3/7 分割状态 */
+#endAutoTrackBtn { width: 140px; background: #dc3545; color: white; display: none; border-right: 1px solid rgba(255,255,255,0.2); }
+#endAutoTrackBtn i { color: white; }
+#endAutoTrackBtn:hover { background: #c82333; }
+
+#pocketModeBtn { width: 80px; background: #343a40; color: #f8f9fa; display: none; font-size: 13px; }
+#pocketModeBtn i { color: #ffc107; margin-right: 2px; }
+#pocketModeBtn:hover { background: #23272b; }
+
+#mainToggleContainer.is-active #autoTrackBtn, #mainToggleContainer.is-active #manualDrawBtn { display: none; }
+#mainToggleContainer.is-active #endActionBtn { display: flex; }
+#mainToggleContainer.is-active.is-tracking #endActionBtn { display: none; }
+#mainToggleContainer.is-active.is-tracking #endAutoTrackBtn, #mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: flex; }
+#mainToggleContainer.is-active { border-color: #dc3545; }
+#mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
+
+/* OLED 省电模式 (极致暗黑版 + 科幻电子表风) */
+#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: 'Orbitron', sans-serif; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+#pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
+.pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+.pocket-time { font-size: 24px; color: #555; font-weight: normal; letter-spacing: 2px; }
+.pocket-battery { font-size: 20px; color: #555; letter-spacing: 1px; }
+.gps-status { display: flex; align-items: center; gap: 8px; font-size: 16px; color: #555; }
+.gps-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; box-shadow: 0 0 8px #28a745; animation: pulse 2s infinite; }
+.gps-dot.lost { background: #dc3545; box-shadow: 0 0 8px #dc3545; animation: none; }
+#pocketGpsDot { background: #005500; box-shadow: none; animation: none; opacity: 0.8; }
+#pocketGpsDot.lost { background: #550000; opacity: 0.8; }
+@keyframes pulse { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
+.pocket-distance { margin-top: 2vh; font-size: 64px; font-weight: 700; color: #006600; text-shadow: none; letter-spacing: 1px; }
+.pocket-distance span { font-size: 20px; color: #444; text-shadow: none; font-weight: normal; margin-left: 4px; letter-spacing: 0; }
+.pocket-sub-stats { display: flex; gap: 30px; margin-top: 10px; color: #444; font-size: 22px; }
+.pocket-sub-stats .sub-stat { display: flex; align-items: baseline; gap: 6px; }
+.pocket-sub-stats small { font-size: 14px; color: #333; }
+#pocketCanvas { flex: 1; width: 80%; max-height: 35vh; margin: 15px 0; opacity: 0.2; }
+.slide-to-unlock { width: 80%; max-width: 320px; height: 56px; background: #000; border-radius: 28px; position: relative; margin-bottom: 12vh; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 2px solid #1a1a1a; }
+.slide-text { color: #333; font-size: 14px; font-weight: normal; letter-spacing: 3px; z-index: 1; pointer-events: none; text-transform: uppercase; }
+.slide-thumb { position: absolute; left: 4px; top: 4px; width: 44px; height: 44px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #444; z-index: 2; cursor: pointer; touch-action: none; border: 2px solid #222; }
+.slide-thumb i { font-size: 20px; text-shadow: none; }
+
+#searchContainer { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(255,255,255,0.95); padding: 8px 16px; border-radius: 25px; display: flex; align-items: center; gap: 10px; width: 300px; max-width: 80vw; transition: all 0.3s ease; }
+#searchContainer i { color: #666; font-size: 14px; }
+#searchInput { border: none; outline: none; background: transparent; flex: 1; font-size: 14px; color: #333; }
+#searchBtn { background: #007bff; color: white; padding: 6px 12px; border-radius: 15px; font-size: 12px; font-weight: bold; }
+#searchBtn:hover { background: #0056b3; }
+
+@media (max-width: 650px) {
+    #statsPanel { top: 10px; left: 10px; min-width: 135px; padding: 10px 12px; }
+    #statsPanel.minimized { width: 44px; min-width: unset; height: 44px; padding: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
+    #statsPanel.minimized #statsHeader span { display: none; }
+    #statsPanel.minimized #statsToggleBtn { display: none; }
+    #statsPanel.minimized #statsContent { display: none; }
+    #statsPanel.minimized::before { content: '\f0ac'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: #007bff; font-size: 18px; }
+
+    #topRightArea { top: 10px; right: 10px; }
+    .icon-btn { width: 38px; height: 38px; font-size: 16px; }
+    #subMenu { top: 48px; }
+    .stat-row { gap: 12px; }
+
+    #timelineContainer { bottom: 150px; right: 65px; width: 200px; transform: translateX(120%); }
+    #timelineContainer.expanded { transform: translateX(0); }
+}
+
+/* 谷歌地图风格的当前位置定位点 */
+.gps-location-marker {
+    width: 14px;
+    height: 14px;
+    background-color: #4285F4;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4);
+    position: relative;
+}
+.gps-location-marker::after {
+    content: '';
+    position: absolute;
+    top: -2px; left: -2px;
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    border: 2px solid #4285F4;
+    animation: gps-pulse 2s infinite;
+    opacity: 0;
+}
+@keyframes gps-pulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(3); opacity: 0; }
+}
+</style>
 </head>
 <body>
-  <div class="card">
-    <h2>Fog Visitor APK 原型</h2>
-    <p>当前已接入原生前台服务骨架、定位回调入口和本地轨迹存储雏形。下一步会把这套数据与正式 Web UI 接起来。</p>
-    <button onclick="AndroidBridge.startBackgroundTracking()">启动原生后台记录</button>
-    <button onclick="AndroidBridge.stopBackgroundTracking()">停止原生后台记录</button>
-    <button onclick="showStatus()">读取原生记录状态</button>
-    <button onclick="showArchive()">读取原生轨迹存档 JSON</button>
-    <button onclick="showSummary()">读取原生存档摘要</button>
-    <button onclick="showRecovery()">读取恢复状态</button>
-    <button onclick="exportArchive()">导出原生存档到下载目录</button>
-    <button onclick="replaceWithSample()">用示例 JSON 覆盖导入</button>
-    <button onclick="mergeWithSample()">用示例 JSON 合并导入</button>
-    <button onclick="recoverDraft()">将未完成草稿恢复成轨迹</button>
-    <button onclick="renderTracks()">渲染原生轨迹列表</button>
-    <pre id="output">等待原生状态...</pre>
-    <div class="track-list" id="trackList">轨迹列表尚未加载</div>
-  </div>
-  <script>
-    const sampleArchive = JSON.stringify({
-      version: "2.0.0",
-      metadata: { totalAreaKm2: 0, createdAt: Date.now() },
-      sourceOfTruth: {
-        tracks: [
-          {
-            id: "sample_track_1",
-            timestamp: Date.now(),
-            source: "android_sample_import",
-            brushRadiusKm: 0.02,
-            encodedPath: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
-            bbox: [-120.2, 38.5, -126.453, 43.252]
-          }
-        ]
-      }
-    }, null, 2);
 
-    function showStatus() {
-      document.getElementById('output').textContent = AndroidBridge.getNativeTrackingStatus();
+<div id="map"></div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.42 (Schema v2.0)</div>
+
+    <div id="searchContainer" class="btn-shadow hidden">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input type="text" id="searchInput" placeholder="搜索地点并飞往..." autocomplete="off">
+    <button id="searchBtn">定位</button>
+</div>
+
+<div id="statsPanel" class="btn-shadow">
+    <div id="statsHeader">
+        <span><i class="fa-solid fa-earth-americas"></i></span>
+        <i id="statsToggleBtn" class="fa-solid fa-chevron-up" style="cursor:pointer; padding: 0 4px;"></i>
+    </div>
+    <div id="statsContent">
+        <div class="stat-row"><span class="stat-label">总面积</span><span class="stat-val global" id="statArea">0.000 km²</span></div>
+        <div class="stat-row"><span class="stat-label">全球占比</span><span class="stat-val global" id="statPct">0.000000%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblCountry">国家</span><span class="stat-val country" id="pctCountry">--%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblCity">城市</span><span class="stat-val city" id="pctCity">--%</span></div>
+        <div class="stat-row"><span class="stat-label" id="lblDistrict">区</span><span class="stat-val district" id="pctDistrict">--%</span></div>
+    </div>
+</div>
+
+<div id="trackingStatusPanel" class="btn-shadow hidden">
+    <div class="gps-status"><div id="mainGpsDot" class="gps-dot"></div> <span id="mainGpsText">GPS 定位中...</span></div>
+</div>
+
+<div id="topRightArea">
+    <div class="menu-group">
+        <button id="menuBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-gear"></i></button>
+        <div id="subMenu" class="btn-shadow hidden">
+            <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出存档</button>
+            <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 恢复存档 (覆盖)</button>
+            <button id="mergeBtn" class="sub-btn"><i class="fa-solid fa-code-merge"></i> 合并存档 (追加)</button>
+            <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
+            <input type="file" id="importFile" style="display:none;">
+        </div>
+    </div>
+</div>
+
+<div id="rightSideTools">
+    <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
+    <div id="baseTools">
+        <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
+        <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
+        
+        <div style="position: relative;">
+            <button id="layerMenuBtn" class="icon-btn btn-shadow" title="切换图层"><i class="fa-solid fa-layer-group"></i></button>
+            <div id="layerSubMenu" class="btn-shadow hidden" style="position: absolute; right: 50px; bottom: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 140px; backdrop-filter: blur(8px);">
+                <button class="sub-btn layer-opt" data-layer="google-satellite"><i class="fa-solid fa-satellite-dish" style="color:#4285F4"></i> 谷歌卫星</button>
+                <button class="sub-btn layer-opt" data-layer="google-hybrid"><i class="fa-solid fa-map-location-dot" style="color:#34A853"></i> 谷歌混合</button>
+                <button class="sub-btn layer-opt" data-layer="google-street"><i class="fa-solid fa-road" style="color:#FBBC05"></i> 谷歌街道</button>
+                <div style="height:1px; background:#ddd; margin: 2px 0;"></div>
+                <button class="sub-btn layer-opt" data-layer="amap"><i class="fa-solid fa-map" style="color:#007bff"></i> 高德地图</button>
+                <button class="sub-btn layer-opt" data-layer="arcgis-satellite"><i class="fa-solid fa-satellite" style="color:#666"></i> ArcGIS 卫星</button>
+                <button class="sub-btn layer-opt" data-layer="osm-street"><i class="fa-solid fa-street-view" style="color:#666"></i> OSM 街道</button>
+            </div>
+        </div>
+
+        <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
+    </div>
+</div>
+
+<div id="timelineContainer" class="btn-shadow"><div id="timelineLabel">时光机进度</div><input type="range" id="timelineSlider" min="0" max="0" value="0"></div>
+
+<div id="mainToggleContainer" class="btn-shadow">
+    <button id="autoTrackBtn" class="split-btn"><i class="fa-solid fa-person-walking"></i> 自动追踪</button>
+    <button id="manualDrawBtn" class="split-btn"><i class="fa-solid fa-pen"></i> 标记</button>
+    <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成</button>
+    
+    <button id="endAutoTrackBtn" class="split-btn"><i class="fa-solid fa-stop"></i> 结束追踪</button>
+    <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i>息屏</button>
+</div>
+
+<div id="pocketModeOverlay">
+    <div class="pocket-header">
+        <div class="gps-status"><div id="pocketGpsDot" class="gps-dot"></div> <span id="pocketGpsText">GPS 活跃</span></div>
+        <div id="pocketTime" class="pocket-time">00:00</div>
+        <div id="pocketBattery" class="pocket-battery">--%</div>
+    </div>
+    <div id="pocketDistance" class="pocket-distance">0.00 <span>km</span></div>
+    <div class="pocket-sub-stats">
+        <div class="sub-stat"><span id="pocketSpeed">0</span> <small>km/h</small></div>
+        <div class="sub-stat"><span id="pocketAlt">--</span> <small>m</small></div>
+    </div>
+    <canvas id="pocketCanvas"></canvas>
+    <div class="slide-to-unlock" id="slideUnlockContainer">
+        <div class="slide-text">&gt;&gt;&gt; 滑动解锁以退出 &gt;&gt;&gt;</div>
+        <div class="slide-thumb" id="slideThumb"><i class="fa-solid fa-lock"></i></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+
+<script>
+    // 全局状态预定义
+    let currentLayerKey = localStorage.getItem('fog_last_layer') || 'google-hybrid';
+
+    // --- WGS84 to GCJ02 坐标转换 (用于修复国内底图偏移) ---
+    const CoordTransform = {
+        PI: 3.1415926535897932384626,
+        a: 6378245.0,
+        ee: 0.00669342162296594323,
+        outOfChina: function(lat, lng) {
+            if (lng < 72.004 || lng > 137.8347) return true;
+            if (lat < 0.8293 || lat > 55.8271) return true;
+            return false;
+        },
+        transformLat: function(x, y) {
+            let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * this.PI) + 20.0 * Math.sin(2.0 * x * this.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(y * this.PI) + 40.0 * Math.sin(y / 3.0 * this.PI)) * 2.0 / 3.0;
+            ret += (160.0 * Math.sin(y / 12.0 * this.PI) + 320 * Math.sin(y * this.PI / 30.0)) * 2.0 / 3.0;
+            return ret;
+        },
+        transformLng: function(x, y) {
+            let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * this.PI) + 20.0 * Math.sin(2.0 * x * this.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(x * this.PI) + 40.0 * Math.sin(x / 3.0 * this.PI)) * 2.0 / 3.0;
+            ret += (150.0 * Math.sin(x / 12.0 * this.PI) + 300.0 * Math.sin(x / 30.0 * this.PI)) * 2.0 / 3.0;
+            return ret;
+        },
+        wgs84togcj02: function(lng, lat) {
+            if (this.outOfChina(lat, lng)) { return [lng, lat]; }
+            let dlat = this.transformLat(lng - 105.0, lat - 35.0);
+            let dlng = this.transformLng(lng - 105.0, lat - 35.0);
+            let radlat = lat / 180.0 * this.PI;
+            let magic = Math.sin(radlat);
+            magic = 1 - this.ee * magic * magic;
+            let sqrtmagic = Math.sqrt(magic);
+            dlat = (dlat * 180.0) / ((this.a * (1 - this.ee)) / (magic * sqrtmagic) * this.PI);
+            dlng = (dlng * 180.0) / (this.a / sqrtmagic * Math.cos(radlat) * this.PI);
+            let mglat = lat + dlat;
+            let mglng = lng + dlng;
+            return [mglng, mglat];
+        },
+        gcj02towgs84: function(lng, lat) {
+            if (this.outOfChina(lat, lng)) { return [lng, lat]; }
+            let dlat = this.transformLat(lng - 105.0, lat - 35.0);
+            let dlng = this.transformLng(lng - 105.0, lat - 35.0);
+            let radlat = lat / 180.0 * this.PI;
+            let magic = Math.sin(radlat);
+            magic = 1 - this.ee * magic * magic;
+            let sqrtmagic = Math.sqrt(magic);
+            dlat = (dlat * 180.0) / ((this.a * (1 - this.ee)) / (magic * sqrtmagic) * this.PI);
+            dlng = (dlng * 180.0) / (this.a / sqrtmagic * Math.cos(radlat) * this.PI);
+            let mglat = lat + dlat;
+            let mglng = lng + dlng;
+            return [lng * 2 - mglng, lat * 2 - mglat];
+        }
+    };
+
+    // --- 极简且无痛的底层投影覆盖方案 ---
+    // 保存原始的 LatLng 到 Point 的转换方法
+    const originalProject = L.Projection.SphericalMercator.project;
+    const originalUnproject = L.Projection.SphericalMercator.unproject;
+    
+    // 方案 A：针对“高德地图”、“谷歌街道地图”等纯火星坐标系地图
+    // 我们全局接管投影。这样用户的轨迹 (Vectors)、地图中心点，都会自动与 GCJ-02 对齐。
+    L.Projection.SphericalMercator.project = function (latlng) {
+        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+            const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
+            return originalProject.call(this, new L.LatLng(gcj[1], gcj[0]));
+        }
+        return originalProject.call(this, latlng);
+    };
+    
+    L.Projection.SphericalMercator.unproject = function (point) {
+        const latlng = originalUnproject.call(this, point);
+        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
+            const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
+            return new L.LatLng(wgs[1], wgs[0]);
+        }
+        return latlng;
+    };
+
+    // 方案 B：针对 Google Hybrid (混合模式)
+    // 混合模式下，底层是无偏移的 WGS84 卫星图，全局投影保持纯净。
+    // 为了解决混合层街道标签在缩放动画时不同步的问题，我们定制一个专用的 TileLayer。
+    // 它在计算每个瓦片的位置 (_getTilePos) 时施加像素偏移。这样偏移量会被编入瓦片的初始位置，
+    // 从而完美兼容 Leaflet 底层的 CSS transform 硬件加速缩放动画，解决缩放时的视觉错位。
+    L.TileLayer.HybridLabel = L.TileLayer.extend({
+        _getTilePos: function (coords) {
+            const pos = L.TileLayer.prototype._getTilePos.call(this, coords);
+            if (!this._map) return pos;
+            
+            const center = this._map.getCenter();
+            if (CoordTransform.outOfChina(center.lat, center.lng)) {
+                return pos;
+            }
+            
+            const z = coords.z;
+            const pWgs = this._map.project(center, z);
+            const gcj = CoordTransform.wgs84togcj02(center.lng, center.lat);
+            const pGcj = this._map.project(new L.LatLng(gcj[1], gcj[0]), z);
+            
+            return pos.add(new L.Point(pWgs.x - pGcj.x, pWgs.y - pGcj.y));
+        }
+    });
+
+    // 恢复 PC 端拖拽默认配置
+    const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
+
+    // 全局当前位置标识点
+    let currentLocationMarker = null;
+    function updateCurrentLocationMarker(lat, lng) {
+        if (!currentLocationMarker) {
+            const icon = L.divIcon({ className: 'gps-location-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
+            currentLocationMarker = L.marker([lat, lng], {icon: icon, zIndexOffset: 1000}).addTo(map);
+        } else {
+            currentLocationMarker.setLatLng([lat, lng]);
+        }
     }
-    function showArchive() {
-      document.getElementById('output').textContent = AndroidBridge.exportNativeArchiveJson();
+    
+    // 图层源定义：包含 6 种模式
+    const mapSources = {
+        satellite: {
+            ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
+            GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (使用定制图层完美同步缩放动画)
+            GoogleHybrid: L.layerGroup([
+                L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+                new L.TileLayer.HybridLabel('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
+            ])
+        },
+        street: {
+            OSM: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '&copy; OpenStreetMap'}),
+            GoogleStreet: L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
+            AMap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {subdomains: "1234", maxZoom: 18, attribution: '&copy; 高德地图'})
+        }
+    };
+    
+    let currentMapLayer;
+    if(currentLayerKey === 'google-satellite') currentMapLayer = mapSources.satellite.GoogleSatellite;
+    else if(currentLayerKey === 'google-hybrid') currentMapLayer = mapSources.satellite.GoogleHybrid;
+    else if(currentLayerKey === 'google-street') currentMapLayer = mapSources.street.GoogleStreet;
+    else if(currentLayerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
+    else if(currentLayerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
+    else if(currentLayerKey === 'amap') currentMapLayer = mapSources.street.AMap;
+    else { currentLayerKey = 'google-hybrid'; currentMapLayer = mapSources.satellite.GoogleHybrid; }
+    
+    currentMapLayer.addTo(map);
+
+    // 初始化时高亮默认图层按钮
+    const activeBtn = document.querySelector(`.layer-opt[data-layer="${currentLayerKey}"]`);
+    if (activeBtn) activeBtn.style.background = '#e9ecef';
+
+    document.getElementById('layerMenuBtn').onclick = () => {
+        document.getElementById('layerSubMenu').classList.toggle('hidden');
+    };
+
+    document.querySelectorAll('.layer-opt').forEach(btn => {
+        btn.onclick = (e) => {
+            const layerKey = e.currentTarget.getAttribute('data-layer');
+            if(layerKey === currentLayerKey) return;
+            
+            // 记录当前的 WGS84 中心点和缩放层级
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            
+            map.removeLayer(currentMapLayer);
+            if(layerKey === 'google-satellite') currentMapLayer = mapSources.satellite.GoogleSatellite;
+            else if(layerKey === 'google-hybrid') currentMapLayer = mapSources.satellite.GoogleHybrid;
+            else if(layerKey === 'google-street') currentMapLayer = mapSources.street.GoogleStreet;
+            else if(layerKey === 'arcgis-satellite') currentMapLayer = mapSources.satellite.ArcGIS;
+            else if(layerKey === 'osm-street') currentMapLayer = mapSources.street.OSM;
+            else if(layerKey === 'amap') currentMapLayer = mapSources.street.AMap;
+            
+            currentLayerKey = layerKey;
+            localStorage.setItem('fog_last_layer', currentLayerKey);
+            
+            // 切换图层后，由于底层投影逻辑可能发生改变（偏移/不偏移），强制刷新地图中心点以重新计算屏幕像素基准，防止地图画面跳动
+            map.setView(center, zoom, {animate: false});
+            currentMapLayer.addTo(map);
+            
+            // 如果存在当前定位点，强制刷新其在地图上的像素位置
+            if (currentLocationMarker) {
+                const latlng = currentLocationMarker.getLatLng();
+                currentLocationMarker.setLatLng(latlng);
+            }
+            
+            // 更新选中状态 UI
+            document.querySelectorAll('.layer-opt').forEach(b => b.style.background = 'transparent');
+            e.currentTarget.style.background = '#e9ecef';
+            document.getElementById('layerSubMenu').classList.add('hidden');
+        };
+    });
+
+    document.getElementById('menuBtn').onclick = () => document.getElementById('subMenu').classList.toggle('hidden');
+    document.getElementById('statsToggleBtn').onclick = function() { const c = document.getElementById('statsContent'); if(c.classList.contains('collapsed')){ c.classList.remove('collapsed'); this.classList.replace('fa-chevron-down', 'fa-chevron-up'); }else{ c.classList.add('collapsed'); this.classList.replace('fa-chevron-up', 'fa-chevron-down'); } };
+
+    const PolylineUtil = { 
+        encode: function(coords) { let res = '', pLat = 0, pLng = 0; for (let p of coords) { let lat = Math.round(p[1]*1e5), lng = Math.round(p[0]*1e5); res += this._enc(lat - pLat) + this._enc(lng - pLng); pLat = lat; pLng = lng; } return res; },
+        decode: function(str) {
+            let index = 0, lat = 0, lng = 0, res = [], shift, result, byte;
+            while (index < str.length) {
+                shift = 0; result = 0;
+                do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                shift = 0; result = 0;
+                do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                res.push([lng / 1e5, lat / 1e5]);
+            }
+            return res;
+        },
+        _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } 
+    };
+
+    const STORAGE_KEY = 'fog_of_world_data_v5'; 
+    const SNAPSHOT_KEY = 'fog_of_world_last_good_snapshot_v1';
+    const DIAGNOSTIC_KEY = 'fog_of_world_storage_diagnostic_v1';
+    const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
+    const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
+    let appData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
+
+    function isValidAppData(data) {
+        if (!data || typeof data !== 'object') return false;
+        const validVersion = data.version === "1.0.0" || data.version === "2.0.0";
+        const hasTracks = !!(data.sourceOfTruth && Array.isArray(data.sourceOfTruth.tracks));
+        const hasRenderCache = !!(data.renderCache && typeof data.renderCache === 'object');
+        const hasMetadata = !!(data.metadata && typeof data.metadata === 'object');
+        return validVersion && hasTracks && hasRenderCache && hasMetadata;
     }
-    function showSummary() {
-      document.getElementById('output').textContent = AndroidBridge.getNativeArchiveSummary();
+
+    function cloneData(data) {
+        return JSON.parse(JSON.stringify(data));
     }
-    function showRecovery() {
-      document.getElementById('output').textContent = AndroidBridge.getNativeRecoveryStatus();
+
+    function summarizeStoredData(data) {
+        if (!data || typeof data !== 'object') return null;
+        return {
+            version: data.version || null,
+            createdAt: data.metadata && data.metadata.createdAt ? data.metadata.createdAt : null,
+            totalAreaKm2: data.metadata && typeof data.metadata.totalAreaKm2 === 'number' ? data.metadata.totalAreaKm2 : null,
+            trackCount: data.sourceOfTruth && Array.isArray(data.sourceOfTruth.tracks) ? data.sourceOfTruth.tracks.length : 0,
+            hasGlobalFog: !!(data.renderCache && data.renderCache.globalFog),
+            hasGlobalExplored: !!(data.renderCache && data.renderCache.globalExplored),
+            dailyKeys: data.renderCache && data.renderCache.dailyExplored ? Object.keys(data.renderCache.dailyExplored).length : 0
+        };
     }
-    function exportArchive() {
-      document.getElementById('output').textContent = AndroidBridge.exportNativeArchiveToDownloads();
+
+    const DataManager = {
+        async writeDiagnostic(reason, extra = {}) {
+            try {
+                await localforage.setItem(DIAGNOSTIC_KEY, {
+                    reason,
+                    origin: location.origin,
+                    href: location.href,
+                    at: Date.now(),
+                    extra
+                });
+            } catch (e) {}
+        },
+        async readDiagnostic() {
+            try { return await localforage.getItem(DIAGNOSTIC_KEY); } catch (e) { return null; }
+        },
+        async clearDiagnostic() {
+            try { await localforage.removeItem(DIAGNOSTIC_KEY); } catch (e) {}
+        },
+        async loadPrimary() {
+            try { return await localforage.getItem(STORAGE_KEY); } catch (e) { return null; }
+        },
+        async loadSnapshot() {
+            try { return await localforage.getItem(SNAPSHOT_KEY); } catch (e) { return null; }
+        },
+        async loadData() {
+            const primary = await this.loadPrimary();
+            if (isValidAppData(primary)) {
+                return { data: primary, source: 'primary' };
+            }
+
+            if (primary && primary.fog) {
+                return { data: primary, source: 'primary_legacy' };
+            }
+
+            if (primary) {
+                await this.writeDiagnostic('primary_invalid', { keys: Object.keys(primary || {}) });
+            }
+
+            const snapshot = await this.loadSnapshot();
+            if (isValidAppData(snapshot)) {
+                await this.writeDiagnostic(primary ? 'recovered_from_snapshot_after_invalid_primary' : 'recovered_from_snapshot_after_missing_primary');
+                return { data: snapshot, source: 'snapshot' };
+            }
+
+            return { data: null, source: 'empty' };
+        },
+        async saveData(data) {
+            if (!isValidAppData(data)) {
+                await this.writeDiagnostic('save_rejected_invalid_payload');
+                throw new Error('存档结构异常，已阻止写入以保护现有数据');
+            }
+
+            const safeData = cloneData(data);
+            await localforage.setItem(STORAGE_KEY, safeData);
+            await localforage.setItem(SNAPSHOT_KEY, safeData);
+            await this.clearDiagnostic();
+        }
+    };
+
+    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+    let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
+
+    const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
+    const getTodayPrefix = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+
+    function updateStatsUI() { let area = appData.metadata.totalAreaKm2; document.getElementById('statArea').textContent = area.toFixed(3) + ' km²'; document.getElementById('statPct').textContent = ((area / EARTH_AREA_KM2) * 100).toFixed(8) + '%'; document.getElementById('statPct').title = area.toFixed(3) + ' km²'; }
+    function calcTotalArea() { if(!appData.renderCache.globalExplored) return 0; return turf.area(appData.renderCache.globalExplored) / 1000000; }
+
+    function getBbox(coords) {
+        if(!coords || coords.length === 0) return null;
+        let minLng = coords[0][0], minLat = coords[0][1], maxLng = coords[0][0], maxLat = coords[0][1];
+        for(let i=1; i<coords.length; i++) {
+            minLng = Math.min(minLng, coords[i][0]); minLat = Math.min(minLat, coords[i][1]);
+            maxLng = Math.max(maxLng, coords[i][0]); maxLat = Math.max(maxLat, coords[i][1]);
+        }
+        return [parseFloat(minLng.toFixed(6)), parseFloat(minLat.toFixed(6)), parseFloat(maxLng.toFixed(6)), parseFloat(maxLat.toFixed(6))];
     }
-    function replaceWithSample() {
-      document.getElementById('output').textContent = AndroidBridge.importNativeArchiveJson(sampleArchive, false);
+
+    let lastCalcTime = 0;
+    async function checkLocalRegion(lat, lng) {
+        if(Date.now() - lastCalcTime < 6000) return; lastCalcTime = Date.now();
+        if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+        const pt = turf.point([lng, lat]);
+        const lvls = [{z:3, idL:'lblCountry', idP:'pctCountry', n:'国家'}, {z:7, idL:'lblCity', idP:'pctCity', n:'城市'}, {z:10, idL:'lblDistrict', idP:'pctDistrict', n:'区'}];
+        for(let i=0; i<lvls.length; i++) {
+            let lvl = lvls[i]; let target = null, rName = lvl.n + "未知";
+            for(let k in appData.renderCache.regionsCache) {
+                if(k.startsWith(lvl.z + '_')) { let r = appData.renderCache.regionsCache[k]; if(r.geojson && turf.booleanPointInPolygon(pt, r.geojson)) { target = r; rName = k.split('_')[1]; break; } }
+            }
+            if(!target) {
+                document.getElementById(lvl.idL).textContent = '嗅探中..'; if(i>0) await new Promise(r => setTimeout(r, 1100));
+                try {
+                    let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${lvl.z}&polygon_geojson=1`); let d = await res.json();
+                    if(d && d.geojson && (d.geojson.type==='Polygon'||d.geojson.type==='MultiPolygon') && d.name) {
+                        rName = d.name; target = { geojson: d.geojson, area: turf.area(d.geojson)/1000000 };
+                        appData.renderCache.regionsCache[`${lvl.z}_${rName}`] = target; DataManager.saveData(appData);
+                    }
+                } catch(e){}
+            }
+            if(target && appData.renderCache.globalExplored) {
+                try { let overlap = turf.intersect(appData.renderCache.globalExplored, target.geojson); let exp = overlap ? turf.area(overlap)/1000000 : 0; document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = ((exp/target.area)*100).toFixed(4) + '%'; document.getElementById(lvl.idP).title = exp.toFixed(3) + ' km²'; } catch(e) { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '算力不足'; }
+            } else if(target) { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '0.0000%'; } else { document.getElementById(lvl.idL).textContent = rName; document.getElementById(lvl.idP).textContent = '--%'; }
+        }
     }
-    function mergeWithSample() {
-      document.getElementById('output').textContent = AndroidBridge.importNativeArchiveJson(sampleArchive, true);
+
+    function renderLayers() {
+        if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
+        
+        // 自动追踪模式下：隐藏迷雾和探索区域多边形，地图全亮
+        if (isAutoRecording) return;
+        
+        let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
+        if(isEditMode) { 
+            if(viewTodayOnly) { let todayPrefix = getTodayPrefix(), todayPoly = null; for(let k in appData.renderCache.dailyExplored) { if(k.startsWith(todayPrefix)) todayPoly = todayPoly ? turf.union(todayPoly, appData.renderCache.dailyExplored[k]) : appData.renderCache.dailyExplored[k]; }
+                if(todayPoly) exploredLayer = L.geoJSON(todayPoly, {style:{fillColor:'#007bff',fillOpacity:0.65,color:'#007bff',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map);
+            } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
+        } else { 
+            if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
+            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
+        }
     }
-    function recoverDraft() {
-      document.getElementById('output').textContent = AndroidBridge.recoverDraftAsTrack();
+
+    function buildTimeline() { timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); }
+    function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
+    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
+    let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
+    const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    const mainToggleContainer = document.getElementById('mainToggleContainer');
+
+    function updateMainBtnUI(stateOverride) {
+        if (stateOverride === 'locating') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
+        if (stateOverride === 'processing') { document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
+        if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
+        if (stateOverride === 'recording') { 
+            mainToggleContainer.classList.add('is-active', 'is-tracking'); 
+            document.getElementById('trackingStatusPanel').classList.remove('hidden');
+            renderLayers(); // 强制重新渲染图层以隐藏迷雾
+            return; 
+        }
+        
+        if (!isEditMode && !isAutoRecording) { 
+            mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
+            document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-stop"></i> 结束追踪';
+            document.getElementById('trackingStatusPanel').classList.add('hidden');
+            if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
+            renderLayers(); // 恢复迷雾显示
+        } else if (isEditMode) { 
+            document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
+            mainToggleContainer.classList.add('is-active'); 
+            mainToggleContainer.classList.remove('is-tracking');
+            if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
+        }
     }
-    function renderTracks() {
-      const raw = AndroidBridge.getNativeArchiveTracks();
-      const tracks = JSON.parse(raw);
-      const el = document.getElementById('trackList');
-      if (!tracks.length) {
-        el.textContent = '当前没有原生轨迹';
-        return;
-      }
-      el.innerHTML = tracks.map(track => {
-        const d = new Date(track.timestamp);
-        return `
-          <div class="track-item">
-            <div><strong>${track.id}</strong></div>
-            <div>来源: ${track.source}</div>
-            <div>时间: ${d.toLocaleString()}</div>
-            <div>画笔: ${track.brushRadiusKm} km</div>
-            <div>bbox: ${track.bbox ? track.bbox.join(', ') : 'none'}</div>
-          </div>
-        `;
-      }).join('');
+
+    // 绑定最小化面板的点击恢复事件
+    document.getElementById('statsPanel').addEventListener('click', function(e) {
+        if(this.classList.contains('minimized') && e.target === this) {
+            // 如果用户主动点击了最小化的地球图标，允许临时展开查看
+            this.classList.remove('minimized');
+            setTimeout(() => { if(isEditMode && isMobile) this.classList.add('minimized'); }, 3000); // 3秒后自动缩回
+        }
+    });
+
+    // 【核心新增：将Turf解雾逻辑抽离，供手动和自动共享】
+    async function processTrackAndSave(coordsArray, trackSource = 'web_draw') {
+        if(!coordsArray || coordsArray.length === 0) return;
+        let simplifiedCoords = coordsArray;
+        if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
+        const trackRecord = { 
+            id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), 
+            timestamp: Date.now(), 
+            source: trackSource, 
+            brushRadiusKm: brushRadiusKm, 
+            encodedPath: PolylineUtil.encode(simplifiedCoords),
+            bbox: getBbox(simplifiedCoords)
+        };
+        let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
+        mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
+        try {
+            let newFog = turf.difference(appData.renderCache.globalFog, mask);
+            if(newFog) { 
+                historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift(); 
+                appData.sourceOfTruth.tracks.push(trackRecord); appData.renderCache.globalFog = newFog; 
+                appData.renderCache.globalExplored = appData.renderCache.globalExplored ? turf.union(appData.renderCache.globalExplored, mask) : mask;
+                let tKey = getTimeKey(); appData.renderCache.dailyExplored[tKey] = appData.renderCache.dailyExplored[tKey] ? turf.union(appData.renderCache.dailyExplored[tKey], mask) : mask;
+                appData.metadata.totalAreaKm2 = calcTotalArea(); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); 
+                checkLocalRegion(simplifiedCoords[simplifiedCoords.length-1][1], simplifiedCoords[simplifiedCoords.length-1][0]);
+            }
+        } catch(err) { console.error(err); }
     }
-    showStatus();
-    renderTracks();
-  </script>
+
+    // 【核心新增：断线草稿恢复】
+    async function recoverDraft() {
+        try {
+            let draft = await localforage.getItem(DRAFT_KEY);
+            if (draft && draft.length > 0) {
+                updateMainBtnUI('processing');
+                await processTrackAndSave(draft, 'auto_track_recovered');
+                await localforage.removeItem(DRAFT_KEY);
+                updateMainBtnUI();
+                alert('已为您恢复上次因意外中断的探索轨迹！');
+            }
+        } catch(e) {}
+    }
+
+    async function initData() {
+        const loadResult = await DataManager.loadData();
+        let loadedData = loadResult.data;
+        if(loadedData && (loadedData.version === "1.0.0" || loadedData.version === "2.0.0")) { 
+            appData = loadedData; 
+            if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {}; 
+            // 如果是 v1.0.0 升级上来的，静默补全 bbox 并升级版本号
+            if(appData.version === "1.0.0") {
+                appData.sourceOfTruth.tracks.forEach(t => {
+                    if(!t.bbox) {
+                        const coords = PolylineUtil.decode(t.encodedPath);
+                        t.bbox = getBbox(coords);
+                    }
+                });
+                appData.version = "2.0.0";
+                await DataManager.saveData(appData);
+            }
+
+            if (loadResult.source === 'snapshot') {
+                alert('检测到主存档异常或缺失，系统已自动从“最后一次有效快照”恢复数据。建议你立即导出一份存档备份。');
+            }
+        } 
+        else if (loadedData && loadedData.fog) { 
+            appData.version = "2.0.0";
+            appData.renderCache.globalFog = loadedData.fog; 
+            appData.renderCache.dailyExplored = loadedData.daily || {}; 
+            try { appData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), loadedData.fog); } catch(e) {} 
+            appData.metadata.totalAreaKm2 = calcTotalArea(); 
+            await DataManager.saveData(appData); 
+        } 
+        else {
+            const diagnostic = await DataManager.readDiagnostic();
+            appData.renderCache.globalFog = turf.polygon(worldCoords);
+            if (diagnostic) {
+                alert('未读取到可用本地存档，当前显示为空白世界。\n可能原因：域名/协议变化、浏览器清理站点数据、主存档损坏。\n系统没有找到可恢复的快照。\n建议先检查当前访问域名，并尝试导入之前导出的存档。');
+            }
+        }
+        if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
+
+        updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); 
+        
+        // 启动时设置地图中心为最后一次的记录点
+        if (appData.sourceOfTruth && appData.sourceOfTruth.tracks && appData.sourceOfTruth.tracks.length > 0) {
+            const tracks = appData.sourceOfTruth.tracks;
+            // 找到时间戳最新的轨迹
+            let latestTrack = tracks[0];
+            for (let i = 1; i < tracks.length; i++) {
+                if (tracks[i].timestamp > latestTrack.timestamp) latestTrack = tracks[i];
+            }
+            if (latestTrack && latestTrack.encodedPath) {
+                const coords = PolylineUtil.decode(latestTrack.encodedPath);
+                if (coords && coords.length > 0) {
+                    const lastPt = coords[coords.length - 1];
+                    // 延迟一点点设置，确保地图已经完全初始化
+                    setTimeout(() => map.setView([lastPt[1], lastPt[0]], 15), 100);
+                }
+            }
+        }
+
+        // 启动时触发一次断线恢复检查
+        await recoverDraft();
+    }
+    localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
+
+    async function exportDiagnosticInfo() {
+        const primary = await DataManager.loadPrimary();
+        const snapshot = await DataManager.loadSnapshot();
+        const draft = await localforage.getItem(DRAFT_KEY).catch(() => null);
+        const diagnostic = await DataManager.readDiagnostic();
+
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            appVersion: 'v0.1.39',
+            origin: location.origin,
+            href: location.href,
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            platform: navigator.platform || null,
+            storage: {
+                storageKey: STORAGE_KEY,
+                snapshotKey: SNAPSHOT_KEY,
+                diagnosticKey: DIAGNOSTIC_KEY,
+                draftKey: DRAFT_KEY,
+                primaryExists: !!primary,
+                primaryValid: isValidAppData(primary),
+                primarySummary: summarizeStoredData(primary),
+                snapshotExists: !!snapshot,
+                snapshotValid: isValidAppData(snapshot),
+                snapshotSummary: summarizeStoredData(snapshot),
+                draftExists: Array.isArray(draft) ? draft.length > 0 : !!draft,
+                draftPointCount: Array.isArray(draft) ? draft.length : 0,
+                diagnostic: diagnostic || null
+            },
+            preferences: {
+                lastLayer: localStorage.getItem('fog_last_layer') || null
+            }
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+        const a = document.createElement('a');
+        const d = new Date();
+        const p = n => n.toString().padStart(2, '0');
+        a.href = URL.createObjectURL(blob);
+        a.download = `fog_diagnostic_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        alert('已导出诊断信息，请把这个 JSON 文件发给我排查。');
+    }
+
+    (() => {
+        const versionTag = document.getElementById('versionTag');
+        let diagnosticPressTimer = null;
+        const triggerDelay = 1000;
+
+        const startPress = (e) => {
+            if (diagnosticPressTimer) clearTimeout(diagnosticPressTimer);
+            diagnosticPressTimer = setTimeout(() => {
+                diagnosticPressTimer = null;
+                exportDiagnosticInfo();
+            }, triggerDelay);
+        };
+
+        const cancelPress = () => {
+            if (diagnosticPressTimer) {
+                clearTimeout(diagnosticPressTimer);
+                diagnosticPressTimer = null;
+            }
+        };
+
+        versionTag.addEventListener('mousedown', startPress);
+        versionTag.addEventListener('touchstart', startPress, {passive: true});
+        versionTag.addEventListener('mouseup', cancelPress);
+        versionTag.addEventListener('mouseleave', cancelPress);
+        versionTag.addEventListener('touchend', cancelPress);
+        versionTag.addEventListener('touchcancel', cancelPress);
+        versionTag.addEventListener('touchmove', cancelPress, {passive: true});
+    })();
+
+    function updateCursor() { 
+        if (!isEditMode) { 
+            document.getElementById('map').style.cursor = 'grab'; 
+            return; 
+        } 
+        let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); 
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; 
+        document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; 
+    }
+    map.on('zoomend', () => { updateCursor(); renderLayers(); }); map.on('moveend', updateCursor);
+
+    const showTodayBtn = document.getElementById('showTodayBtn'); showTodayBtn.onclick = () => { viewTodayOnly = !viewTodayOnly; showTodayBtn.style.color = viewTodayOnly ? '#dc3545' : '#007bff'; updateMainBtnUI(); renderLayers(); };
+    const markTools = document.getElementById('markTools');
+    // 删除旧的 mainToggle.onclick 逻辑
+
+    document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
+    document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
+
+    function locateMe() {
+        if(navigator.geolocation) {
+            updateMainBtnUI('locating');
+            navigator.geolocation.getCurrentPosition(pos => {
+                let lat = pos.coords.latitude, lng = pos.coords.longitude; 
+                map.flyTo([lat, lng], 16); 
+                updateCurrentLocationMarker(lat, lng);
+                updateMainBtnUI();
+                currentPath = [[lng, lat]]; endDraw(true); 
+            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+        } else { alert('当前环境不支持定位'); }
+    }
+    document.getElementById('locateBtn').onclick = locateMe; 
+
+    let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
+    let isPocketMode = false;
+    let pocketDistanceKm = 0;
+    let lastPocketCanvasDrawTime = 0;
+    
+    // 简易 Haversine 距离计算 (避免引入 Turf.js 运算开销)
+    function calcDistanceKm(pt1, pt2) {
+        const R = 6371; // Earth radius in km
+        const dLat = (pt2[1] - pt1[1]) * Math.PI / 180;
+        const dLng = (pt2[0] - pt1[0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(pt1[1] * Math.PI / 180) * Math.cos(pt2[1] * Math.PI / 180) *
+                  Math.sin(dLng/2) * Math.sin(dLng/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    let lastPocketUiUpdateTime = 0; // 用于 DOM 节流
+
+    // 更新 Pocket Mode UI 状态
+    function updatePocketUI(lat, lng, distDeltaKm, speedKmh = null, altitude = null) {
+        if (!isPocketMode) return;
+        
+        pocketDistanceKm += distDeltaKm;
+        
+        // DOM 操作节流：每 2 秒最多更新一次 DOM，防止高频触发重排/重绘
+        const nowMs = Date.now();
+        if (nowMs - lastPocketUiUpdateTime < 2000 && livePath.length > 2) return;
+        lastPocketUiUpdateTime = nowMs;
+
+        const now = new Date();
+        document.getElementById('pocketTime').textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        
+        document.getElementById('pocketDistance').innerHTML = pocketDistanceKm.toFixed(2) + ' <span>km</span>';
+        
+        if (speedKmh !== null && !isNaN(speedKmh)) document.getElementById('pocketSpeed').textContent = Math.round(speedKmh);
+        if (altitude !== null && !isNaN(altitude)) document.getElementById('pocketAlt').textContent = Math.round(altitude);
+        
+        // Canvas 简易绘制 (节流：每 10 秒最多重绘一次)
+        if (nowMs - lastPocketCanvasDrawTime < 10000 && livePath.length > 2) return;
+        lastPocketCanvasDrawTime = nowMs;
+
+        const canvas = document.getElementById('pocketCanvas');
+        const ctx = canvas.getContext('2d');
+        if (livePath.length < 2) return;
+        
+        // 自动适应屏幕尺寸
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        
+        // 找出 bbox
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        livePath.forEach(pt => {
+            minX = Math.min(minX, pt[0]); maxX = Math.max(maxX, pt[0]);
+            minY = Math.min(minY, pt[1]); maxY = Math.max(maxY, pt[1]);
+        });
+        
+        const padding = 20;
+        const scaleX = (canvas.width - padding*2) / (maxX - minX || 1);
+        const scaleY = (canvas.height - padding*2) / (maxY - minY || 1);
+        const scale = Math.min(scaleX, scaleY);
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath();
+        ctx.strokeStyle = '#008000';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        livePath.forEach((pt, i) => {
+            const cx = padding + (pt[0] - minX) * scale;
+            const cy = canvas.height - padding - (pt[1] - minY) * scale; // 纬度反转
+            if(i === 0) ctx.moveTo(cx, cy);
+            else ctx.lineTo(cx, cy);
+        });
+        ctx.stroke();
+    }
+
+    let pocketStartTime = 0;
+    let pocketStartBattery = null;
+    let batteryObj = null;
+    
+    if (navigator.getBattery) {
+        navigator.getBattery().then(b => {
+            batteryObj = b;
+            b.addEventListener('levelchange', () => {
+                if (isPocketMode) {
+                    document.getElementById('pocketBattery').textContent = Math.round(b.level * 100) + '%';
+                }
+            });
+        });
+    }
+
+    // 进入省电模式
+    document.getElementById('pocketModeBtn').onclick = () => {
+        isPocketMode = true;
+        pocketStartTime = Date.now();
+        if (batteryObj) {
+            pocketStartBattery = batteryObj.level;
+            document.getElementById('pocketBattery').textContent = Math.round(batteryObj.level * 100) + '%';
+        } else {
+            document.getElementById('pocketBattery').textContent = '--%';
+        }
+        
+        // 计算当前 livePath 的总距离，作为初始距离
+        pocketDistanceKm = 0;
+        if (livePath.length > 1) {
+            for (let i = 1; i < livePath.length; i++) {
+                pocketDistanceKm += calcDistanceKm(livePath[i-1], livePath[i]);
+            }
+        }
+        
+        document.getElementById('pocketModeOverlay').classList.add('active');
+        document.getElementById('map').style.display = 'none'; // 彻底隐藏地图，停止 Leaflet 渲染
+        updatePocketUI(0, 0, 0);
+    };
+
+    // 滑动解锁退出省电模式
+    const thumb = document.getElementById('slideThumb');
+    const container = document.getElementById('slideUnlockContainer');
+    let isSliding = false, startX = 0;
+    
+    thumb.addEventListener('touchstart', e => { isSliding = true; startX = e.touches[0].clientX; thumb.style.transition = 'none'; });
+    thumb.addEventListener('touchmove', e => {
+        if(!isSliding) return;
+        let dx = e.touches[0].clientX - startX;
+        if(dx < 0) dx = 0;
+        const maxW = container.clientWidth - thumb.clientWidth - 8;
+        if(dx > maxW) dx = maxW;
+        thumb.style.transform = `translateX(${dx}px)`;
+        if(dx >= maxW * 0.95) { // 解锁成功
+            isSliding = false;
+            isPocketMode = false;
+            
+            // 耗电分析报告
+            const timeSpent = Date.now() - pocketStartTime;
+            let reportMsg = `【息屏追踪报告】\n时长: ${Math.round(timeSpent / 1000 / 60)} 分钟`;
+            if (batteryObj && pocketStartBattery !== null) {
+                const batteryUsed = pocketStartBattery - batteryObj.level;
+                reportMsg += `\n耗电: ${Math.round(batteryUsed * 100)}%`;
+                if (batteryUsed > 0) {
+                    const msPerPercent = timeSpent / (batteryUsed * 100);
+                    reportMsg += `\n效率: 1% 电量约可追踪 ${(msPerPercent / 1000 / 60).toFixed(1)} 分钟`;
+                } else {
+                    reportMsg += `\n效率: 电量无明显下降，完美！`;
+                }
+            } else {
+                reportMsg += `\n耗电: 当前设备或浏览器不支持电量读取`;
+            }
+            alert(reportMsg);
+
+            document.getElementById('pocketModeOverlay').classList.remove('active');
+            document.getElementById('map').style.display = 'block';
+            map.invalidateSize(); // 恢复地图渲染
+            
+            // 【关键修复】退出息屏模式后，立刻把这段时间没画的 livePath 画到 Leaflet 地图上
+            if(livePath.length > 0) {
+                if (livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+                const latlngs = livePath.map(pt => [pt[1], pt[0]]);
+                let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlngs[0][0] * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                livePolyline = L.polyline(latlngs, {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                
+                const lastPt = livePath[livePath.length-1];
+                map.panTo([lastPt[1], lastPt[0]]);
+            }
+            
+            thumb.style.transform = `translateX(0px)`;
+        }
+    });
+    thumb.addEventListener('touchend', () => { if(isSliding) { isSliding = false; thumb.style.transition = 'transform 0.3s ease'; thumb.style.transform = `translateX(0px)`; } });
+
+    document.getElementById('autoTrackBtn').onclick = async () => {
+        if(isEditMode) return alert("请先关闭手动标记模式");
+        if (isAutoRecording) return; // 不可能，已被隐藏
+        
+        // 开始记录
+        if(!navigator.geolocation) return alert("当前环境不支持定位");
+        isAutoRecording = true; livePath = [];
+        
+        // 【关键修复】正确监听并处理 Wake Lock 丢失与恢复
+        const requestWakeLock = async () => {
+            try { 
+                if(navigator.wakeLock) {
+                    wakeLock = await navigator.wakeLock.request('screen'); 
+                    console.log('Wake Lock 激活成功');
+                }
+            } catch(e) { console.warn('唤醒锁请求失败:', e); }
+        };
+        await requestWakeLock();
+        
+        // 当页面可见性改变时 (例如从后台切回，或意外息屏被唤醒) 重新申请 Wake Lock
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible' && isAutoRecording) {
+                await requestWakeLock();
+            }
+        });
+
+        updateMainBtnUI('recording');
+        
+        watchId = navigator.geolocation.watchPosition(
+            async (pos) => {
+                if (pos.coords.accuracy > 30) return; // 精度太低过滤
+                const lat = pos.coords.latitude, lng = pos.coords.longitude, currentLatLng = L.latLng(lat, lng);
+                
+                updateCurrentLocationMarker(lat, lng);
+
+                if (livePath.length > 0) {
+                    const lastPt = livePath[livePath.length - 1], lastLatLng = L.latLng(lastPt[1], lastPt[0]);
+                    const dist = currentLatLng.distanceTo(lastLatLng);
+                    
+                    if (dist < 10) return; // 距离小于 10 米过滤，防原地漂移
+                    
+                    // 【防飞线断开逻辑】如果两点之间距离 > 200米，说明中间锁屏断线了
+                    if (dist > 200) {
+                        // 1. 静默结算上一段
+                        await processTrackAndSave(livePath, 'auto_track');
+                        // 2. 清空重新开始新的一段
+                        livePath = [];
+                        if (livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+                        // 注意：这里不需要返回，让新点作为新的 livePath 的起点继续走下去
+                    }
+                }
+                
+                livePath.push([lng, lat]);
+                
+                if (isPocketMode) {
+                    // 省电模式下：仅更新状态灯、距离和 Canvas，绝对不操作 Leaflet DOM
+                    const distDeltaKm = livePath.length > 1 ? calcDistanceKm(livePath[livePath.length-2], [lng, lat]) : 0;
+                    
+                    // 获取免费数据：速度 (m/s -> km/h) 和海拔
+                    const speedKmh = pos.coords.speed ? (pos.coords.speed * 3.6) : 0;
+                    const altitude = pos.coords.altitude || 0;
+
+                    const dot = document.getElementById('pocketGpsDot');
+                    dot.classList.remove('lost'); 
+                    document.getElementById('pocketGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
+                    updatePocketUI(lat, lng, distDeltaKm, speedKmh, altitude);
+                } else {
+                    // 正常追踪模式下：更新普通界面的状态指示灯
+                    document.getElementById('mainGpsDot').classList.remove('lost');
+                    document.getElementById('mainGpsText').textContent = 'GPS 活跃 (' + pos.coords.accuracy.toFixed(0) + 'm)';
+
+                    // 在地图上绘制虚线草稿
+                    if (!livePolyline) {
+                        let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+                        livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
+                    } else { livePolyline.addLatLng([lat, lng]); }
+                    map.panTo([lat, lng]);
+                }
+                
+                // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
+                await localforage.setItem(DRAFT_KEY, livePath); 
+            },
+            (err) => { 
+                console.warn(err); 
+                if (isPocketMode) {
+                    document.getElementById('pocketGpsDot').classList.add('lost');
+                    document.getElementById('pocketGpsText').textContent = 'GPS 丢失';
+                } else {
+                    document.getElementById('mainGpsDot').classList.add('lost');
+                    document.getElementById('mainGpsText').textContent = 'GPS 丢失';
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    };
+
+    document.getElementById('endAutoTrackBtn').onclick = async () => {
+        // 停止记录并结算
+        isAutoRecording = false;
+        if(watchId) navigator.geolocation.clearWatch(watchId);
+        if(wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
+        
+        if (livePath.length > 0) {
+            updateMainBtnUI('processing');
+            await processTrackAndSave(livePath, 'auto_track');
+            await localforage.removeItem(DRAFT_KEY); // 结算成功，清空幽灵草稿
+        }
+        if(livePolyline) { map.removeLayer(livePolyline); livePolyline = null; }
+        livePath = []; updateMainBtnUI();
+    };
+
+    document.getElementById('manualDrawBtn').onclick = () => {
+        if(isAutoRecording) return alert("请先停止当前的自动探索");
+        isEditMode = true; 
+        updateMainBtnUI();
+        
+        markTools.classList.remove('hidden'); 
+        showTodayBtn.classList.remove('hidden'); 
+        document.getElementById('searchContainer').classList.remove('hidden'); 
+        document.getElementById('toggleTimelineBtn').classList.add('hidden'); 
+        document.getElementById('timelineContainer').classList.remove('expanded'); 
+        document.getElementById('toggleTimelineBtn').style.color = '#007bff'; 
+        viewTimelineExpanded = false; 
+        if(isMobile) { map.dragging.disable(); document.getElementById('statsPanel').classList.add('minimized'); }
+        
+        document.getElementById('subMenu').classList.add('hidden'); 
+        renderLayers(); updateCursor();
+    };
+
+    document.getElementById('endActionBtn').onclick = async () => {
+        if (isEditMode) {
+            // 结束手动标记
+            isEditMode = false; 
+            updateMainBtnUI();
+            
+            markTools.classList.add('hidden'); 
+            showTodayBtn.classList.add('hidden'); 
+            document.getElementById('searchContainer').classList.add('hidden'); 
+            viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; 
+            buildTimeline(); 
+            if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); 
+            if(isMobile) { map.dragging.enable(); document.getElementById('statsPanel').classList.remove('minimized'); }
+            
+            renderLayers(); updateCursor();
+        }
+    };
+
+    function startDraw(latlng) { if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)); tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map); }
+    function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
+    async function endDraw(force) {
+        if(force !== true && (!isEditMode || !isDrawing)) return; 
+        isDrawing = false; if(tempPolyline) map.removeLayer(tempPolyline); 
+        if(currentPath.length > 0) await processTrackAndSave(currentPath, 'web_draw');
+    }
+
+    const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); 
+    let isDragging = false, isRightDragging = false; let lastX, lastY;
+    
+    // --- 移动端“笔尖偏移” (Y-Axis Offset) 与虚拟准星 UI ---
+    // 为了防止胖手指遮挡视线，当检测到触摸操作时，绘制落点强制向上偏移一个常数
+    const TOUCH_Y_OFFSET = -70; // 增大间距
+    let virtualPenTip = null; // 用于在屏幕上指示真正落点的虚拟准星
+    let isAiming = false;     // 新增瞄准状态
+    let lastTouchEvent = null;// 记录最后一次触摸事件
+
+    function updateVirtualPenTip(point, state = 'drawing') {
+        if (!virtualPenTip) {
+            virtualPenTip = document.createElement('div');
+            virtualPenTip.style.cssText = 'position:absolute; width:16px; height:16px; border-radius:50%; pointer-events:none; z-index:9999; box-shadow:0 0 4px rgba(0,0,0,0.3); transition: transform 0.2s ease, border-color 0.2s;';
+            // 十字交叉线
+            virtualPenTip.innerHTML = '<div class="cross-h" style="position:absolute; top:7px; left:-2px; width:20px; height:2px; transition: background 0.2s;"></div><div class="cross-v" style="position:absolute; top:-2px; left:7px; width:2px; height:20px; transition: background 0.2s;"></div>';
+            mc.appendChild(virtualPenTip);
+        }
+        
+        // 状态视觉反馈：蓝色为瞄准，红色放大为绘制中
+        const color = state === 'drawing' ? '#dc3545' : '#007bff';
+        const scale = state === 'drawing' ? 'scale(1.2)' : 'scale(1)';
+        
+        virtualPenTip.style.left = point.x + 'px';
+        virtualPenTip.style.top = point.y + 'px';
+        virtualPenTip.style.transform = `translate(-50%, -50%) ${scale}`;
+        virtualPenTip.style.border = `2px solid ${color}`;
+        virtualPenTip.querySelector('.cross-h').style.background = color;
+        virtualPenTip.querySelector('.cross-v').style.background = color;
+    }
+    
+    function removeVirtualPenTip() {
+        if (virtualPenTip && virtualPenTip.parentNode) {
+            virtualPenTip.parentNode.removeChild(virtualPenTip);
+            virtualPenTip = null;
+        }
+    }
+
+    // 辅助函数：应用 Y 轴偏移并返回真实的经纬度落点
+    function getOffsetLatLng(touchEvent, state = 'drawing') {
+        const touch = touchEvent.touches ? touchEvent.touches[0] : touchEvent;
+        const rect = mc.getBoundingClientRect();
+        // 获取手指相对于 map 容器的原始像素坐标
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        // 施加 Y 轴偏移 (笔尖上移)
+        const targetPoint = new L.Point(x, y + TOUCH_Y_OFFSET);
+        
+        // 更新准星 UI
+        updateVirtualPenTip(targetPoint, state);
+        
+        // 返回最终落点的经纬度
+        return map.containerPointToLatLng(targetPoint);
+    }
+
+    mc.addEventListener('mousedown', (e) => { 
+        if (e.button === 0) {
+            if (isEditMode) {
+                startDraw(map.mouseEventToLatLng(e)); 
+            } else {
+                isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
+            }
+        } else if (e.button === 2) { 
+            e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing'; 
+        } 
+    });
+
+    mc.addEventListener('mousemove', (e) => { 
+        if (isDrawing) { 
+            moveDraw(map.mouseEventToLatLng(e)); 
+        } else if (isDragging || isRightDragging) { 
+            const dx = e.clientX - lastX; const dy = e.clientY - lastY; 
+            // 修复拖拽逻辑：使用 map.panBy 时需要注意性能，如果是大范围拖拽建议调整参数
+            map.panBy([-dx, -dy], {animate: false}); lastX = e.clientX; lastY = e.clientY; 
+        } 
+    });
+
+    document.addEventListener('mouseup', (e) => { 
+        if (e.button === 0) {
+            if (isDrawing) {
+                endDraw(); 
+            } else if (isDragging) {
+                isDragging = false; updateCursor();
+            }
+        } else if (e.button === 2 && isRightDragging) { 
+            isRightDragging = false; updateCursor(); 
+        } 
+    });
+    mc.addEventListener('touchstart', (e) => { 
+        if(!isEditMode) return; 
+        if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+
+        if(e.touches.length === 1) {
+            e.preventDefault(); // 阻止默认行为，防止屏幕滚动干扰
+            isAiming = true;
+            lastTouchEvent = e;
+            
+            // 初始显示蓝色瞄准准星
+            getOffsetLatLng(lastTouchEvent, 'aiming'); 
+            
+            // 增加停顿时间到 400ms，让用户有时间瞄准
+            touchTimer = setTimeout(() => {
+                isAiming = false;
+                // 400ms 后变为红色放大，开始画线
+                const latlng = getOffsetLatLng(lastTouchEvent, 'drawing');
+                startDraw(latlng);
+                touchTimer = null;
+            }, 400);
+        } else {
+            // 如果已经是多指，确保取消绘图
+            isAiming = false;
+            if(isDrawing) endDraw(true); 
+            removeVirtualPenTip();
+        }
+    }, {passive: false});
+
+    mc.addEventListener('touchmove', (e) => { 
+        if(!isEditMode) return;
+        if(e.touches.length === 1) {
+            e.preventDefault(); 
+            lastTouchEvent = e; // 更新最新的触摸事件
+            if (isDrawing) {
+                const latlng = getOffsetLatLng(lastTouchEvent, 'drawing');
+                moveDraw(latlng); 
+            } else if (isAiming) {
+                // 瞄准阶段：准星跟随手指移动，但不画线，保持蓝色
+                getOffsetLatLng(lastTouchEvent, 'aiming');
+            }
+        } else if (e.touches.length > 1) {
+            // 一旦出现多指，立刻清除判定计时器并强制结束绘图
+            isAiming = false;
+            if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+            if(isDrawing) endDraw(true);
+            removeVirtualPenTip();
+        }
+    }, {passive: false});
+
+    mc.addEventListener('touchend', (e) => {
+        if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+        isAiming = false;
+        if (e.touches.length === 0) {
+            if (isDrawing) endDraw(false);
+            removeVirtualPenTip();
+        }
+    });
+
+    document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
+    
+    document.getElementById('exportBtn').onclick = async () => { 
+        let exportData = JSON.parse(JSON.stringify(appData)); exportData.renderCache.globalFog = null; 
+        const jsonStr = JSON.stringify(exportData); const d = new Date(), p = n => n.toString().padStart(2, '0');
+        const filenameBase = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+        try {
+            const blob = new Blob([jsonStr], {type: "application/json"}); const compressedStream = blob.stream().pipeThrough(new CompressionStream("gzip"));
+            const compressedBlob = await new Response(compressedStream).blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(compressedBlob); a.download = filenameBase + '.fogbak'; a.click();
+        } catch (err) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([jsonStr], {type:"application/json"})); a.download = filenameBase + '.json'; a.click(); }
+        document.getElementById('subMenu').classList.add('hidden'); 
+    };
+    
+    document.getElementById('importBtn').onclick = () => { isMergeMode = false; document.getElementById('importFile').click(); };
+    document.getElementById('mergeBtn').onclick = () => { isMergeMode = true; document.getElementById('importFile').click(); };
+    let isMergeMode = false;
+
+    document.getElementById('importFile').onchange = async (e) => {
+        const file = e.target.files[0]; if(!file) return;
+        try { 
+            let jsonStr;
+            if (file.name.endsWith('.fogbak') || file.name.endsWith('.gz')) { const ds = file.stream().pipeThrough(new DecompressionStream("gzip")); jsonStr = await new Response(ds).text(); } 
+            else { jsonStr = await file.text(); }
+            let parsed = JSON.parse(jsonStr);
+            
+            // 确保 parsed 格式统一 (支持 v1.0.0 到 v2.0.0 的平滑过渡)
+            let targetData;
+            if(parsed.version === "1.0.0" || parsed.version === "2.0.0") { 
+                targetData = parsed; 
+                // 为旧版数据补全 bbox
+                targetData.sourceOfTruth.tracks.forEach(t => {
+                    if(!t.bbox) {
+                        const coords = PolylineUtil.decode(t.encodedPath);
+                        t.bbox = getBbox(coords);
+                    }
+                });
+            }
+            else if(parsed.fog) { 
+                targetData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
+                try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} 
+            } else { throw new Error("无效的存档格式"); }
+
+            if (!isMergeMode) {
+                if(!confirm("确定要恢复存档吗？当前所有未备份的数据将被覆盖！")) return;
+                appData = targetData;
+                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+                alert("恢复成功！");
+            } else {
+                updateMainBtnUI('processing');
+                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
+                
+                // 1. 全局去重与排序
+                const existingTracks = appData.sourceOfTruth.tracks;
+                const newTracks = targetData.sourceOfTruth.tracks;
+                const trackMap = new Map();
+                existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
+                newTracks.forEach(t => {
+                    const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
+                    if (!trackMap.has(key)) trackMap.set(key, t);
+                });
+                const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+                // 2. 空间增量判定与路径简化
+                let cumulativeExplored = null;
+                const optimizedTracks = [];
+                appData.renderCache.dailyExplored = {};
+
+                for(let i = 0; i < allTracks.length; i++) {
+                    const track = allTracks[i];
+                    let coords = PolylineUtil.decode(track.encodedPath);
+                    if(coords.length < 1) continue;
+
+                    // A. 路径简化 (A->B->C->D => A->D)
+                    if(coords.length > 2) {
+                        const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
+                        coords = line.geometry.coordinates;
+                        track.encodedPath = PolylineUtil.encode(coords); 
+                        track.bbox = getBbox(coords); // 重新计算简化后的 bbox
+                    } else {
+                        track.bbox = getBbox(coords); // 补全 bbox
+                    }
+
+                    // B. 空间增量判定 (是否点亮了新区域)
+                    let trackPoly;
+                    try {
+                        if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
+                        else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
+                        trackPoly = turf.truncate(trackPoly, {precision: 6});
+
+                        if (!cumulativeExplored) {
+                            cumulativeExplored = trackPoly;
+                            optimizedTracks.push(track);
+                        } else {
+                            // 计算增量面积
+                            const diff = turf.difference(trackPoly, cumulativeExplored);
+                            if (diff && turf.area(diff) > 1) { // 只有新增面积 > 1平方米时才保留
+                                cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                                optimizedTracks.push(track);
+                            } else {
+                                // 100% 冗余路径，跳过不加入 optimizedTracks
+                                continue; 
+                            }
+                        }
+
+                        // C. 重建时光机每日索引 (仅保留有贡献的轨迹)
+                        const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
+                        if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
+                        else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
+
+                    } catch(e) { 
+                        // 容灾：如果空间计算出错，保守起见保留原始数据
+                        optimizedTracks.push(track); 
+                        if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                    }
+                    
+                    if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+                }
+
+                // 3. 最终数据同步
+                appData.sourceOfTruth.tracks = optimizedTracks;
+                appData.renderCache.globalExplored = cumulativeExplored;
+                if (cumulativeExplored) {
+                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), cumulativeExplored);
+                } else {
+                    appData.renderCache.globalFog = turf.polygon(worldCoords);
+                }
+                
+                appData.metadata.totalAreaKm2 = calcTotalArea();
+                alert(`深度合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
+            }
+
+            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
+        } catch(err) { alert("操作失败：" + err.message); console.error(err); }
+        updateMainBtnUI(); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
+    };
+
+    // 搜索功能实现
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    async function performSearch() {
+        const query = searchInput.value.trim();
+        if(!query) return;
+        searchBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        try {
+            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+            const data = await resp.json();
+            if(data && data.length > 0) {
+                const { lat, lon } = data[0];
+                map.flyTo([lat, lon], 14, { duration: 1.5 });
+            } else { alert("未找到该地点，请尝试更精确的描述"); }
+        } catch(err) { alert("搜索服务异常，请稍后再试"); }
+        searchBtn.innerHTML = '定位';
+    }
+    searchBtn.onclick = performSearch;
+    searchInput.onkeydown = (e) => { if(e.key === 'Enter') performSearch(); };
+</script>
 </body>
 </html>
