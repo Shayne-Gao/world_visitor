@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -18,9 +19,19 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var didInjectBridgeSync = false
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
 
     private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+                hasForegroundLocationPermission()
+
+            pendingGeoCallback?.invoke(pendingGeoOrigin, granted, false)
+            pendingGeoOrigin = null
+            pendingGeoCallback = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         settings.databaseEnabled = true
         settings.allowFileAccess = true
         settings.allowContentAccess = true
+        settings.setGeolocationEnabled(true)
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
@@ -70,7 +82,28 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                if (origin == null || callback == null) return
+
+                if (hasForegroundLocationPermission()) {
+                    callback.invoke(origin, true, false)
+                    return
+                }
+
+                pendingGeoOrigin = origin
+                pendingGeoCallback = callback
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        }
         webView.addJavascriptInterface(
             JsBridge(
                 this,
@@ -153,5 +186,10 @@ class MainActivity : AppCompatActivity() {
             action = TrackingForegroundService.ACTION_STOP
         }
         startService(intent)
+    }
+
+    private fun hasForegroundLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 }
