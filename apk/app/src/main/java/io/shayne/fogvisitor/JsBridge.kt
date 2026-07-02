@@ -7,7 +7,9 @@ import android.widget.Toast
 class JsBridge(
     private val context: Context,
     private val onStartTracking: () -> Unit,
-    private val onStopTracking: () -> Unit
+    private val onStopTracking: () -> Unit,
+    private val onPickImportReplace: () -> Unit,
+    private val onPickImportMerge: () -> Unit
 ) {
 
     private val trackStore by lazy { NativeTrackStore(context) }
@@ -60,5 +62,15 @@ class JsBridge(
         } else {
             """{"ok":false,"reason":"no_draft"}"""
         }
+    }
+
+    @JavascriptInterface
+    fun pickNativeArchiveForReplace() {
+        onPickImportReplace.invoke()
+    }
+
+    @JavascriptInterface
+    fun pickNativeArchiveForMerge() {
+        onPickImportMerge.invoke()
     }
 }

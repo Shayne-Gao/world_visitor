@@ -3,6 +3,7 @@ package io.shayne.fogvisitor
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.webkit.GeolocationPermissions
@@ -19,9 +20,11 @@ import io.shayne.fogvisitor.databinding.ActivityMainBinding
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var nativeTrackStore: NativeTrackStore
     private var didInjectBridgeSync = false
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private var pendingImportMergeMode = false
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -34,9 +37,17 @@ class MainActivity : AppCompatActivity() {
             pendingGeoCallback = null
         }
 
+    private val importArchiveLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri != null) {
+                handleImportedArchiveUri(uri, pendingImportMergeMode)
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, true)
+        nativeTrackStore = NativeTrackStore(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -110,7 +121,9 @@ class MainActivity : AppCompatActivity() {
             JsBridge(
                 this,
                 onStartTracking = { startNativeTrackingService() },
-                onStopTracking = { stopNativeTrackingService() }
+                onStopTracking = { stopNativeTrackingService() },
+                onPickImportReplace = { launchImportPicker(false) },
+                onPickImportMerge = { launchImportPicker(true) }
             ),
             "AndroidBridge"
         )
@@ -251,6 +264,45 @@ class MainActivity : AppCompatActivity() {
                     if (bindNativeTrackingUi()) clearInterval(bindRetry);
                   }, 500);
                 }
+
+                const bindNativeArchiveUi = () => {
+                  const exportBtn = document.getElementById('exportBtn');
+                  const importBtn = document.getElementById('importBtn');
+                  const mergeBtn = document.getElementById('mergeBtn');
+                  if (!exportBtn || !importBtn || !mergeBtn || window.__fogNativeArchiveUiBound) return false;
+
+                  exportBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    try {
+                      const result = AndroidBridge.exportNativeArchiveToDownloads();
+                      alert('导出成功，已写入下载目录：\\n' + result);
+                    } catch (err) {
+                      alert('导出失败：' + err);
+                    }
+                  }, true);
+
+                  importBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    AndroidBridge.pickNativeArchiveForReplace();
+                  }, true);
+
+                  mergeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    AndroidBridge.pickNativeArchiveForMerge();
+                  }, true);
+
+                  window.__fogNativeArchiveUiBound = true;
+                  return true;
+                };
+
+                if (!bindNativeArchiveUi()) {
+                  const archiveRetry = setInterval(() => {
+                    if (bindNativeArchiveUi()) clearInterval(archiveRetry);
+                  }, 500);
+                }
               } catch (e) {
                 console.warn('Native bootstrap sync failed:', e);
               }
@@ -272,6 +324,58 @@ class MainActivity : AppCompatActivity() {
             action = TrackingForegroundService.ACTION_STOP
         }
         startService(intent)
+    }
+
+    private fun launchImportPicker(merge: Boolean) {
+        pendingImportMergeMode = merge
+        importArchiveLauncher.launch(arrayOf("*/*"))
+    }
+
+    private fun handleImportedArchiveUri(uri: Uri, merge: Boolean) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: SecurityException) {
+        }
+
+        runCatching {
+            nativeTrackStore.importArchiveUri(uri, merge)
+        }.onSuccess {
+            binding.webView.post {
+                binding.webView.evaluateJavascript(
+                    """
+                    (async function() {
+                      try {
+                        const nativeArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                        await localforage.setItem('fog_of_world_data_v5', nativeArchive);
+                        alert('${if (merge) "合并" else "恢复"}成功，页面将自动刷新。');
+                        location.reload();
+                      } catch (e) {
+                        alert('已写入原生存档，但同步到页面失败：' + e);
+                      }
+                    })();
+                    """.trimIndent(),
+                    null
+                )
+            }
+        }.onFailure { err ->
+            binding.webView.post {
+                binding.webView.evaluateJavascript(
+                    "alert('导入失败：${escapeJsString(err.message ?: "未知错误")}');",
+                    null
+                )
+            }
+        }
+    }
+
+    private fun escapeJsString(raw: String): String {
+        return raw
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "")
     }
 
     private fun hasForegroundLocationPermission(): Boolean {

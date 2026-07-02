@@ -4,11 +4,14 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayInputStream
 import java.text.SimpleDateFormat
+import java.util.zip.GZIPInputStream
 import java.util.Date
 import java.util.Locale
 
@@ -113,6 +116,27 @@ class NativeTrackStore(private val context: Context) {
 
     fun importArchiveJson(rawJson: String, merge: Boolean): String {
         val parsed = JSONObject(rawJson)
+        return importParsedArchive(parsed, merge)
+    }
+
+    fun importArchiveUri(uri: Uri, merge: Boolean): String {
+        val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("无法读取导入文件")
+        val fileName = resolveDisplayName(uri) ?: ""
+        val jsonStr = if (
+            fileName.endsWith(".fogbak", ignoreCase = true) ||
+            fileName.endsWith(".gz", ignoreCase = true) ||
+            isGzip(rawBytes)
+        ) {
+            GZIPInputStream(ByteArrayInputStream(rawBytes)).bufferedReader().use { it.readText() }
+        } else {
+            rawBytes.toString(Charsets.UTF_8)
+        }
+        val parsed = JSONObject(jsonStr)
+        return importParsedArchive(parsed, merge)
+    }
+
+    private fun importParsedArchive(parsed: JSONObject, merge: Boolean): String {
         val importedTracks = when {
             parsed.optString("version") == "2.0.0" || parsed.optString("version") == "1.0.0" -> {
                 val tracks = parsed.getJSONObject("sourceOfTruth").getJSONArray("tracks")
@@ -142,6 +166,18 @@ class NativeTrackStore(private val context: Context) {
             put("mode", if (merge) "merge" else "replace")
             put("trackCount", finalTracks.size)
         }.toString()
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        return context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+    }
+
+    private fun isGzip(bytes: ByteArray): Boolean {
+        if (bytes.size < 2) return false
+        return bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
     }
 
     fun getStatusJson(): String {
