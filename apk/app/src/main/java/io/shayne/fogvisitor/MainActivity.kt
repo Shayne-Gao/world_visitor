@@ -12,16 +12,20 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import io.shayne.fogvisitor.databinding.ActivityMainBinding
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var nativeTrackStore: NativeTrackStore
+    private val debugServerUrl = "http://127.0.0.1:7777/event"
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingImportMergeMode = false
@@ -92,6 +96,12 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                //#region debug-point apk-ui-storage-regression-native-page-finished
+                reportDebugEvent(
+                    "native_page_finished",
+                    mapOf("url" to (url ?: "null"))
+                )
+                //#endregion
                 injectNativeArchiveSync(webView)
                 binding.statusBanner.visibility = View.GONE
             }
@@ -175,9 +185,9 @@ class MainActivity : AppCompatActivity() {
                 archive.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
                 return archive;
               };
+              window.__fogNormalizeNativeArchiveForWeb = normalizeNativeArchiveForWeb;
 
               const syncNativeArchiveToLocal = async () => {
-                const nativeArchive = normalizeNativeArchiveForWeb(JSON.parse(AndroidBridge.exportNativeArchiveJson()));
                 const nativeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
                 const current = await localforage.getItem('fog_of_world_data_v5');
                 const currentTrackCount = current?.sourceOfTruth?.tracks?.length || 0;
@@ -188,6 +198,11 @@ class MainActivity : AppCompatActivity() {
                   nativeSummary.trackCount > currentTrackCount ||
                   nativeSummary.latestTimestamp > currentLatestTimestamp;
 
+                if (!shouldReplaceLocal) {
+                  return false;
+                }
+
+                const nativeArchive = normalizeNativeArchiveForWeb(JSON.parse(AndroidBridge.exportNativeArchiveJson()));
                 if (shouldReplaceLocal) {
                   await localforage.setItem('fog_of_world_data_v5', nativeArchive);
                   return true;
@@ -358,10 +373,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchImportPicker(merge: Boolean) {
         pendingImportMergeMode = merge
+        //#region debug-point apk-ui-storage-regression-native-launch-picker
+        reportDebugEvent(
+            "native_launch_import_picker",
+            mapOf("merge" to merge.toString())
+        )
+        //#endregion
         importArchiveLauncher.launch(arrayOf("*/*"))
     }
 
     private fun handleImportedArchiveUri(uri: Uri, merge: Boolean) {
+        //#region debug-point apk-ui-storage-regression-native-import-start
+        reportDebugEvent(
+            "native_import_uri_received",
+            mapOf("merge" to merge.toString(), "uri" to uri.toString())
+        )
+        //#endregion
         try {
             contentResolver.takePersistableUriPermission(
                 uri,
@@ -373,17 +400,44 @@ class MainActivity : AppCompatActivity() {
         runCatching {
             nativeTrackStore.importArchiveUri(uri, merge)
         }.onSuccess {
+            //#region debug-point apk-ui-storage-regression-native-import-success
+            reportDebugEvent(
+                "native_import_success",
+                mapOf("merge" to merge.toString())
+            )
+            //#endregion
+            Toast.makeText(
+                this,
+                if (merge) "合并成功，正在刷新页面数据" else "恢复成功，正在刷新页面数据",
+                Toast.LENGTH_SHORT
+            ).show()
             binding.webView.post {
                 binding.webView.evaluateJavascript(
                     """
                     (async function() {
                       try {
-                        const nativeArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
-                        await localforage.setItem('fog_of_world_data_v5', nativeArchive);
-                        alert('${if (merge) "合并" else "恢复"}成功，页面将自动刷新。');
-                        location.reload();
+                        const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                        const normalized = window.__fogNormalizeNativeArchiveForWeb
+                          ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
+                          : rawArchive;
+                        if (window.__fogApplyNormalizedArchiveToPage) {
+                          await window.__fogApplyNormalizedArchiveToPage(normalized);
+                        } else {
+                          await localforage.setItem('fog_of_world_data_v5', normalized);
+                        }
+                        if (window.reportDebugEvent) {
+                          window.reportDebugEvent('web_import_apply_success', {
+                            merge: '${if (merge) "true" else "false"}',
+                            trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0)
+                          });
+                        }
                       } catch (e) {
-                        alert('已写入原生存档，但同步到页面失败：' + e);
+                        if (window.reportDebugEvent) {
+                          window.reportDebugEvent('web_import_apply_failure', {
+                            merge: '${if (merge) "true" else "false"}',
+                            error: String(e)
+                          });
+                        }
                       }
                     })();
                     """.trimIndent(),
@@ -391,6 +445,16 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }.onFailure { err ->
+            //#region debug-point apk-ui-storage-regression-native-import-failure
+            reportDebugEvent(
+                "native_import_failure",
+                mapOf(
+                    "merge" to merge.toString(),
+                    "error" to (err.message ?: "unknown")
+                )
+            )
+            //#endregion
+            Toast.makeText(this, "导入失败：${err.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
             binding.webView.post {
                 binding.webView.evaluateJavascript(
                     "alert('导入失败：${escapeJsString(err.message ?: "未知错误")}');",
@@ -413,4 +477,40 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
+    //#region debug-point apk-ui-storage-regression-native-reporter
+    private fun reportDebugEvent(name: String, payload: Map<String, String>) {
+        Thread {
+            runCatching {
+                val body = buildString {
+                    append("{")
+                    append("\"session_id\":\"apk-ui-storage-regression\",")
+                    append("\"event\":\"").append(jsonEscape(name)).append("\",")
+                    append("\"payload\":{")
+                    append(payload.entries.joinToString(",") { entry ->
+                        "\"${jsonEscape(entry.key)}\":\"${jsonEscape(entry.value)}\""
+                    })
+                    append("}}")
+                }
+                val conn = (URL(debugServerUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1000
+                    readTimeout = 1000
+                }
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                conn.inputStream.close()
+                conn.disconnect()
+            }
+        }.start()
+    }
+
+    private fun jsonEscape(value: String): String {
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "")
+    }
+    //#endregion
 }
