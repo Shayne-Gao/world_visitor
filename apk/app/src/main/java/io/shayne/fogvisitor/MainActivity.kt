@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import io.shayne.fogvisitor.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -123,7 +125,7 @@ class MainActivity : AppCompatActivity() {
               if (window.__fogNativeSyncInstalled) return;
               window.__fogNativeSyncInstalled = true;
 
-              try {
+              const syncNativeArchiveToLocal = async () => {
                 const nativeArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
                 const nativeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
                 const current = await localforage.getItem('fog_of_world_data_v5');
@@ -137,6 +139,14 @@ class MainActivity : AppCompatActivity() {
 
                 if (shouldReplaceLocal) {
                   await localforage.setItem('fog_of_world_data_v5', nativeArchive);
+                  return true;
+                }
+                return false;
+              };
+
+              try {
+                const replaced = await syncNativeArchiveToLocal();
+                if (replaced) {
                   sessionStorage.setItem('fog_native_bootstrap_done', '1');
                   if (!sessionStorage.getItem('fog_native_bootstrap_reloaded')) {
                     sessionStorage.setItem('fog_native_bootstrap_reloaded', '1');
@@ -163,6 +173,82 @@ class MainActivity : AppCompatActivity() {
                 if (!installSaveHook()) {
                   const retry = setInterval(() => {
                     if (installSaveHook()) clearInterval(retry);
+                  }, 500);
+                }
+
+                const bindNativeTrackingUi = () => {
+                  const autoBtn = document.getElementById('autoTrackBtn');
+                  const endBtn = document.getElementById('endActionBtn');
+                  if (!autoBtn || !endBtn || window.__fogNativeTrackingUiBound) return false;
+
+                  const setNativeTrackingUi = (active) => {
+                    const mainToggle = document.getElementById('mainToggleContainer');
+                    const trackingPanel = document.getElementById('trackingStatusPanel');
+                    const gpsText = document.getElementById('gpsStatusText');
+                    const gpsDot = document.getElementById('gpsStatusDot');
+
+                    if (active) {
+                      window.__fogNativeTrackMode = true;
+                      mainToggle?.classList.add('is-active', 'is-tracking');
+                      trackingPanel?.classList.remove('hidden');
+                      if (gpsText) gpsText.textContent = 'APK 后台记录中';
+                      if (gpsDot) gpsDot.className = 'fa-solid fa-circle text-green-400';
+                      if (window.updateMainBtnUI) window.updateMainBtnUI('tracking');
+                    } else {
+                      window.__fogNativeTrackMode = false;
+                      mainToggle?.classList.remove('is-active', 'is-tracking');
+                      trackingPanel?.classList.add('hidden');
+                      if (window.updateMainBtnUI) window.updateMainBtnUI();
+                    }
+                  };
+
+                  autoBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    try {
+                      AndroidBridge.startBackgroundTracking();
+                      setNativeTrackingUi(true);
+                    } catch (err) {
+                      console.warn('Failed to start native tracking', err);
+                    }
+                  }, true);
+
+                  endBtn.addEventListener('click', async (e) => {
+                    if (!window.__fogNativeTrackMode) return;
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    try {
+                      AndroidBridge.stopBackgroundTracking();
+                      setNativeTrackingUi(false);
+                      setTimeout(async () => {
+                        try {
+                          await syncNativeArchiveToLocal();
+                          location.reload();
+                        } catch (reloadErr) {
+                          console.warn('Failed to reload native archive after stop', reloadErr);
+                        }
+                      }, 1200);
+                    } catch (err) {
+                      console.warn('Failed to stop native tracking', err);
+                    }
+                  }, true);
+
+                  try {
+                    const recovery = JSON.parse(AndroidBridge.getNativeRecoveryStatus());
+                    if (recovery.shouldTrack || recovery.hasRecoverableDraft) {
+                      setNativeTrackingUi(true);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to read native recovery status', e);
+                  }
+
+                  window.__fogNativeTrackingUiBound = true;
+                  return true;
+                };
+
+                if (!bindNativeTrackingUi()) {
+                  const bindRetry = setInterval(() => {
+                    if (bindNativeTrackingUi()) clearInterval(bindRetry);
                   }, 500);
                 }
               } catch (e) {
