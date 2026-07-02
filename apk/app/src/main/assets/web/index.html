@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.43 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.44 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -736,7 +736,7 @@ button:active { transform: scale(0.92); }
                 await DataManager.saveData(appData);
             }
 
-            if (loadResult.source === 'snapshot') {
+            if (loadResult.source === 'snapshot' && !(window.AndroidBridge && location.protocol === 'file:')) {
                 alert('检测到主存档异常或缺失，系统已自动从“最后一次有效快照”恢复数据。建议你立即导出一份存档备份。');
             }
         } 
@@ -751,7 +751,7 @@ button:active { transform: scale(0.92); }
         else {
             const diagnostic = await DataManager.readDiagnostic();
             appData.renderCache.globalFog = turf.polygon(worldCoords);
-            if (diagnostic) {
+            if (diagnostic && !(window.AndroidBridge && location.protocol === 'file:')) {
                 alert('未读取到可用本地存档，当前显示为空白世界。\n可能原因：域名/协议变化、浏览器清理站点数据、主存档损坏。\n系统没有找到可恢复的快照。\n建议先检查当前访问域名，并尝试导入之前导出的存档。');
             }
         }
@@ -790,7 +790,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.43',
+            appVersion: 'v0.1.44',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

@@ -25,7 +25,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var nativeTrackStore: NativeTrackStore
-    private var didInjectBridgeSync = false
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingImportMergeMode = false
@@ -94,10 +93,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                if (!didInjectBridgeSync) {
-                    didInjectBridgeSync = true
-                    injectNativeArchiveSync(webView)
-                }
+                injectNativeArchiveSync(webView)
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
@@ -137,7 +133,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun injectNativeArchiveSync(webView: WebView) {
-        val safeTopPx = getStatusBarInsetPx()
+        val safeTopPx = dpToPx(56)
         val script = """
             (async function () {
               if (!window.AndroidBridge || !window.localforage) return;
@@ -152,11 +148,11 @@ class MainActivity : AppCompatActivity() {
                 style.id = 'apk-safe-area-style';
                 style.textContent = `
                   #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
-                    top: ${safeTopPx + 15}px !important;
+                    top: ${safeTopPx}px !important;
                   }
                   @media (max-width: 640px) {
                     #statsPanel, #trackingStatusPanel, #topRightArea, #searchContainer {
-                      top: ${safeTopPx + 10}px !important;
+                      top: ${safeTopPx}px !important;
                     }
                   }
                 `;
@@ -446,13 +442,10 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun getStatusBarInsetPx(): Int {
-        val insets = ViewCompat.getRootWindowInsets(binding.root)
-        val top = insets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
-        if (top > 0) return top
+    private fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
-            24f,
+            dp.toFloat(),
             resources.displayMetrics
         ).toInt()
     }
