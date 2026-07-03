@@ -191,15 +191,16 @@ class NativeTrackStore(private val context: Context) {
         return runStore {
             val track = trackFromJson(JSONObject(rawJson))
             dao.upsertTrack(track.toEntity())
-            val lastPoint = extractLastPoint(track)
+            val shouldUpdateLiveLocation = isLiveLocationSource(track.source)
+            val lastPoint = if (shouldUpdateLiveLocation) extractLastPoint(track) else null
             updateStatus(
                 isTracking = prefs.getBoolean(KEY_IS_TRACKING, false),
                 shouldTrack = prefs.getBoolean(KEY_SHOULD_TRACK, false),
                 draftPointCount = readDraftPoints().size,
-                lastPointAt = track.timestamp,
-                lastLng = lastPoint?.getOrNull(0),
-                lastLat = lastPoint?.getOrNull(1),
-                lastAccuracy = null
+                lastPointAt = if (shouldUpdateLiveLocation) track.timestamp else prefs.getLong(KEY_LAST_POINT_AT, 0L),
+                lastLng = lastPoint?.getOrNull(0) ?: readOptionalDouble(KEY_LAST_LNG_BITS),
+                lastLat = lastPoint?.getOrNull(1) ?: readOptionalDouble(KEY_LAST_LAT_BITS),
+                lastAccuracy = if (shouldUpdateLiveLocation) null else readOptionalDouble(KEY_LAST_ACCURACY_BITS)
             )
             JSONObject().apply {
                 put("ok", true)
@@ -559,6 +560,17 @@ class NativeTrackStore(private val context: Context) {
         return runCatching {
             PolylineCodec.decode(track.encodedPath).lastOrNull()
         }.getOrNull()
+    }
+
+    private fun isLiveLocationSource(source: String): Boolean {
+        return source in setOf(
+            "manual_locate",
+            "android_background_track",
+            "android_background_track_segment",
+            "auto_track",
+            "auto_track_recovered",
+            "android_recovered_track"
+        )
     }
 
     private fun buildArchiveJson(tracks: List<TrackRecord>): JSONObject {

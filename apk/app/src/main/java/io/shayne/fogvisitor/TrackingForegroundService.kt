@@ -23,6 +23,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import org.json.JSONObject
 
 class TrackingForegroundService : Service() {
 
@@ -30,6 +31,8 @@ class TrackingForegroundService : Service() {
     private lateinit var trackStore: NativeTrackStore
     private var locationCallback: LocationCallback? = null
     private var isExplicitStop = false
+    private var lastAcceptedLocation: Location? = null
+    private var lastAcceptedAt: Long = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,6 +40,7 @@ class TrackingForegroundService : Service() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         trackStore = NativeTrackStore(this)
+        restoreLastAcceptedLocation()
         //#region debug-point apk-ui-storage-regression-service-create
         reportDebugEvent("service_on_create", emptyMap())
         //#endregion
@@ -208,6 +212,7 @@ class TrackingForegroundService : Service() {
     }
 
     private fun persistLocation(location: Location) {
+        if (!shouldPersistLocation(location)) return
         //#region debug-point apk-ui-storage-regression-service-location-result
         reportDebugEvent(
             "service_location_result",
@@ -223,7 +228,9 @@ class TrackingForegroundService : Service() {
             lat = location.latitude,
             accuracy = location.accuracy.toDouble()
         )
-        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 1)
+        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 4)
+        lastAcceptedLocation = location
+        lastAcceptedAt = System.currentTimeMillis()
         //#region debug-point auto-tracking-broken-service-point-persisted
         reportDebugEvent(
             "service_location_persisted",
@@ -236,12 +243,57 @@ class TrackingForegroundService : Service() {
         //#endregion
     }
 
+    private fun shouldPersistLocation(location: Location): Boolean {
+        if (location.accuracy > MAX_ACCEPTED_ACCURACY_METERS) {
+            reportDebugEvent(
+                "service_location_skipped_accuracy",
+                mapOf("acc" to location.accuracy.toString())
+            )
+            return false
+        }
+        val previous = lastAcceptedLocation ?: return true
+        val distance = location.distanceTo(previous)
+        val elapsedMs = System.currentTimeMillis() - lastAcceptedAt
+        if (distance < MIN_POINT_DISTANCE_METERS && elapsedMs < STATIONARY_SKIP_WINDOW_MS) {
+            reportDebugEvent(
+                "service_location_skipped_stationary",
+                mapOf(
+                    "distance" to distance.toString(),
+                    "elapsedMs" to elapsedMs.toString()
+                )
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun restoreLastAcceptedLocation() {
+        runCatching {
+            val status = JSONObject(trackStore.getStatusJson())
+            val lat = status.optDouble("lastLat", Double.NaN)
+            val lng = status.optDouble("lastLng", Double.NaN)
+            if (!lat.isFinite() || !lng.isFinite()) return
+            lastAcceptedLocation = Location("track_store_status").apply {
+                latitude = lat
+                longitude = lng
+                val accuracy = status.optDouble("lastAccuracy", Double.NaN)
+                if (accuracy.isFinite()) {
+                    this.accuracy = accuracy.toFloat()
+                }
+            }
+            lastAcceptedAt = status.optLong("lastPointAt", 0L)
+        }
+    }
+
     companion object {
         const val ACTION_START = "io.shayne.fogvisitor.action.START_TRACKING"
         const val ACTION_STOP = "io.shayne.fogvisitor.action.STOP_TRACKING"
 
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
+        private const val MAX_ACCEPTED_ACCURACY_METERS = 35f
+        private const val MIN_POINT_DISTANCE_METERS = 8f
+        private const val STATIONARY_SKIP_WINDOW_MS = 2 * 60 * 1000L
     }
 
     //#region debug-point apk-ui-storage-regression-service-reporter
