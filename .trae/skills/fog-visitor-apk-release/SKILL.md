@@ -7,6 +7,21 @@ description: "Maintains Fog Visitor Android APK release discipline. Invoke when 
 
 This skill defines the non-negotiable working rules for the `world_visitor` repository.
 
+## Rule 1: Fix First, No Regressions
+
+The first rule of every development cycle is:
+- solve the reported problem for real
+- do not introduce new problems while fixing it
+- self-check the whole affected flow before shipping
+
+This is mandatory, not aspirational.
+
+Required behavior:
+- do not stop at a plausible code change; verify that the reported symptom is actually addressed in the current logic
+- before release, explicitly inspect for nearby regressions in the same flow
+- if a fix changes data semantics, tracking semantics, UI state, or storage behavior, review the whole chain instead of only the touched function
+- if there is evidence that the fix made the behavior worse, stop, acknowledge it clearly, and correct it before packaging
+
 Use this skill whenever you are:
 - changing code for the Android app
 - updating the shipped APK

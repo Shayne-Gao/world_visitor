@@ -64,7 +64,7 @@ class NativeTrackStore(private val context: Context) {
         return runStore {
             val points = readDraftPoints()
             if (points.size < minPointCount) return@runStore null
-            if (isStationaryCluster(points)) {
+            if (shouldDiscardCheckpoint(points)) {
                 val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
                 val lastPoint = seed.lastOrNull()
                 writeDraftPoints(seed)
@@ -595,6 +595,37 @@ class NativeTrackStore(private val context: Context) {
         return displacementMeters < MIN_MOVEMENT_FOR_TRACK_METERS && spreadMeters < MIN_MOVEMENT_FOR_TRACK_METERS
     }
 
+    private fun shouldDiscardCheckpoint(points: List<List<Double>>): Boolean {
+        if (isStationaryCluster(points)) return true
+        val pathLengthMeters = totalPathLengthMeters(points)
+        val first = points.first()
+        val last = points.last()
+        val displacementMeters = distanceMeters(
+            first.getOrElse(1) { 0.0 },
+            first.getOrElse(0) { 0.0 },
+            last.getOrElse(1) { 0.0 },
+            last.getOrElse(0) { 0.0 }
+        )
+        return pathLengthMeters < MIN_PATH_LENGTH_FOR_TRACK_METERS &&
+            displacementMeters < MIN_MOVEMENT_FOR_TRACK_METERS
+    }
+
+    private fun totalPathLengthMeters(points: List<List<Double>>): Double {
+        if (points.size < 2) return 0.0
+        var total = 0.0
+        for (index in 1 until points.size) {
+            val previous = points[index - 1]
+            val current = points[index]
+            total += distanceMeters(
+                previous.getOrElse(1) { 0.0 },
+                previous.getOrElse(0) { 0.0 },
+                current.getOrElse(1) { 0.0 },
+                current.getOrElse(0) { 0.0 }
+            )
+        }
+        return total
+    }
+
     private fun distanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
         val earthRadiusMeters = 6_371_000.0
         val dLat = Math.toRadians(lat2 - lat1)
@@ -698,6 +729,7 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
         private const val MIN_MOVEMENT_FOR_TRACK_METERS = 20.0
+        private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 45.0
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000

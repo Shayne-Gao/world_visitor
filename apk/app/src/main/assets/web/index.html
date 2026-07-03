@@ -182,7 +182,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.73 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.74 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1090,9 +1090,7 @@ button:active { transform: scale(0.92); }
                 durationMs: Math.round(performance.now() - diffStartedAt),
                 hasNewFog: String(!!newFog)
             });
-            const shouldPersistTrack =
-                !!newFog ||
-                (trackSource !== 'manual_locate' && trackSource !== 'web_draw');
+            const shouldPersistTrack = !!newFog;
             if (shouldPersistTrack) {
                 historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift();
                 appData.sourceOfTruth.tracks.push(trackRecord);
@@ -1301,7 +1299,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.73',
+            appVersion: 'v0.1.74',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

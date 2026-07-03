@@ -253,13 +253,19 @@ class TrackingForegroundService : Service() {
         }
         val previous = lastAcceptedLocation ?: return true
         val distance = location.distanceTo(previous)
-        val elapsedMs = System.currentTimeMillis() - lastAcceptedAt
-        if (distance < MIN_POINT_DISTANCE_METERS && elapsedMs < STATIONARY_SKIP_WINDOW_MS) {
+        val effectiveMinDistance = maxOf(
+            MIN_POINT_DISTANCE_METERS,
+            minOf(
+                MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS,
+                maxOf(previous.accuracy, location.accuracy)
+            )
+        )
+        if (distance < effectiveMinDistance) {
             reportDebugEvent(
                 "service_location_skipped_stationary",
                 mapOf(
                     "distance" to distance.toString(),
-                    "elapsedMs" to elapsedMs.toString()
+                    "threshold" to effectiveMinDistance.toString()
                 )
             )
             return false
@@ -293,7 +299,7 @@ class TrackingForegroundService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val MAX_ACCEPTED_ACCURACY_METERS = 35f
         private const val MIN_POINT_DISTANCE_METERS = 20f
-        private const val STATIONARY_SKIP_WINDOW_MS = 2 * 60 * 1000L
+        private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 45f
     }
 
     //#region debug-point apk-ui-storage-regression-service-reporter
