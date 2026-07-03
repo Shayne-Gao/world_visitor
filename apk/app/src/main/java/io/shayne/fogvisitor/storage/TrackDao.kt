@@ -27,6 +27,9 @@ interface TrackDao {
     @Query("SELECT MAX(timestamp) FROM track_segments")
     fun getLatestTimestamp(): Long?
 
+    @Query("SELECT * FROM track_segments ORDER BY timestamp DESC LIMIT 1")
+    fun getLatestTrack(): TrackSegmentEntity?
+
     @Query("SELECT * FROM draft_points ORDER BY sequence ASC")
     fun getDraftPoints(): List<DraftPointEntity>
 

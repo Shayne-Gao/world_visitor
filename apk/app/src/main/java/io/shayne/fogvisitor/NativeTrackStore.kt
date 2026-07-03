@@ -601,13 +601,19 @@ class NativeTrackStore(private val context: Context) {
                 track = null
             )
         }
-        dao.upsertTrack(track.toEntity())
+        val latestTrack = dao.getLatestTrack()?.toModel()
+        val trackToPersist = if (latestTrack != null && shouldMergeIntoLatest(latestTrack, track)) {
+            mergeTracks(latestTrack, track)
+        } else {
+            track
+        }
+        dao.upsertTrack(trackToPersist.toEntity())
         appendExploredCells(candidateCells)
         return PersistTrackResult(
             persisted = true,
-            reason = "persisted",
+            reason = if (trackToPersist.id == track.id) "persisted" else "merged_into_latest",
             trackCount = dao.getTrackCount(),
-            track = track
+            track = trackToPersist
         )
     }
 
@@ -691,6 +697,45 @@ class NativeTrackStore(private val context: Context) {
         }
     }
 
+    private fun shouldMergeIntoLatest(previous: TrackRecord, current: TrackRecord): Boolean {
+        if (!isMergeableAutoSource(previous.source) || !isMergeableAutoSource(current.source)) return false
+        if (current.timestamp - previous.timestamp > MAX_MERGE_GAP_MS) return false
+        if (previous.brushRadiusKm != current.brushRadiusKm) return false
+        val previousLast = extractLastPoint(previous) ?: return false
+        val currentFirst = runCatching { PolylineCodec.decode(current.encodedPath).firstOrNull() }.getOrNull() ?: return false
+        val distance = distanceMeters(
+            previousLast.getOrElse(1) { 0.0 },
+            previousLast.getOrElse(0) { 0.0 },
+            currentFirst.getOrElse(1) { 0.0 },
+            currentFirst.getOrElse(0) { 0.0 }
+        )
+        return distance <= MAX_MERGE_DISTANCE_METERS
+    }
+
+    private fun mergeTracks(previous: TrackRecord, current: TrackRecord): TrackRecord {
+        val previousPoints = runCatching { PolylineCodec.decode(previous.encodedPath) }.getOrElse { emptyList() }
+        val currentPoints = runCatching { PolylineCodec.decode(current.encodedPath) }.getOrElse { emptyList() }
+        if (previousPoints.isEmpty()) return current
+        if (currentPoints.isEmpty()) return previous
+
+        val mergedPoints = previousPoints.toMutableList()
+        val currentStartIndex = if (samePoint(previousPoints.last(), currentPoints.first())) 1 else 0
+        for (index in currentStartIndex until currentPoints.size) {
+            mergedPoints.add(currentPoints[index])
+        }
+
+        return previous.copy(
+            timestamp = current.timestamp,
+            encodedPath = PolylineCodec.encode(mergedPoints),
+            bbox = PolylineCodec.calculateBbox(mergedPoints)
+        )
+    }
+
+    private fun samePoint(a: List<Double>, b: List<Double>): Boolean {
+        if (a.size < 2 || b.size < 2) return false
+        return kotlin.math.abs(a[0] - b[0]) < 1e-7 && kotlin.math.abs(a[1] - b[1]) < 1e-7
+    }
+
     private fun toCell(lat: Double, lng: Double): Pair<Int, Int> {
         val latMeters = lat * 111_320.0
         val lngMeters = lng * 111_320.0 * kotlin.math.cos(Math.toRadians(lat))
@@ -764,6 +809,16 @@ class NativeTrackStore(private val context: Context) {
     private fun isLiveLocationSource(source: String): Boolean {
         return source in setOf(
             "manual_locate",
+            "android_background_track",
+            "android_background_track_segment",
+            "auto_track",
+            "auto_track_recovered",
+            "android_recovered_track"
+        )
+    }
+
+    private fun isMergeableAutoSource(source: String): Boolean {
+        return source in setOf(
             "android_background_track",
             "android_background_track_segment",
             "auto_track",
@@ -855,6 +910,8 @@ class NativeTrackStore(private val context: Context) {
         private const val MIN_MOVEMENT_FOR_TRACK_METERS = 20.0
         private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 45.0
         private const val CELL_SIZE_METERS = 20.0
+        private const val MAX_MERGE_GAP_MS = 3 * 60 * 1000L
+        private const val MAX_MERGE_DISTANCE_METERS = 35.0
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000
