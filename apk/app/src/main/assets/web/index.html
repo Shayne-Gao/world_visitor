@@ -32,6 +32,12 @@ button:active { transform: scale(0.92); }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
+#blockingOverlay { position: fixed; inset: 0; z-index: 12000; background: rgba(0,0,0,0.62); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; pointer-events: auto; }
+#blockingOverlay.active { display: flex; }
+#blockingOverlay .overlay-card { width: min(86vw, 420px); max-height: 70vh; overflow: auto; background: rgba(20,20,25,0.9); border: 1px solid rgba(255,255,255,0.16); border-radius: 14px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+#blockingOverlay .overlay-title { font-size: 13px; font-weight: 700; color: #e5e7eb; margin-bottom: 10px; }
+#blockingOverlay .overlay-line { font-size: 13px; line-height: 1.5; color: #9ca3af; white-space: pre-wrap; }
+#blockingOverlay .overlay-line.active { color: #f3f4f6; }
 
 #topRightArea { position: absolute; top: 46px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
@@ -176,7 +182,13 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.65 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">v0.1.66 (Schema v2.0)</div>
+<div id="blockingOverlay">
+    <div class="overlay-card">
+        <div class="overlay-title">正在处理，请稍候...</div>
+        <div id="blockingOverlayLines"></div>
+    </div>
+</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -521,11 +533,33 @@ button:active { transform: scale(0.92); }
     const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
     let appData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
+    const blockingOverlay = document.getElementById('blockingOverlay');
+    const blockingOverlayLines = document.getElementById('blockingOverlayLines');
+    let blockingOverlayVisible = false;
+    function showBlockingOverlay(title = '正在处理，请稍候...') {
+        blockingOverlay.querySelector('.overlay-title').textContent = title;
+        blockingOverlay.classList.add('active');
+        blockingOverlayVisible = true;
+    }
+    function appendBlockingOverlayLine(text, active = true) {
+        const line = document.createElement('div');
+        line.className = `overlay-line${active ? ' active' : ''}`;
+        line.textContent = `正在 ${text}...`;
+        blockingOverlayLines.appendChild(line);
+        blockingOverlayLines.scrollTop = blockingOverlayLines.scrollHeight;
+    }
+    function clearBlockingOverlay() {
+        blockingOverlayLines.innerHTML = '';
+        blockingOverlay.classList.remove('active');
+        blockingOverlayVisible = false;
+    }
     async function hydrateNativeRenderCacheAfterBoot() {
         if (!(window.AndroidBridge && location.protocol === 'file:')) return;
         if (!window.__fogPendingNativeHydration) return;
         window.__fogPendingNativeHydration = false;
         const hydrateStartedAt = performance.now();
+        showBlockingOverlay('正在准备地图数据...');
+        appendBlockingOverlayLine('读取原生存档');
         reportDebugEvent('web_native_hydration_start', {
             trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0)
         });
@@ -533,9 +567,11 @@ button:active { transform: scale(0.92); }
             try {
                 const raw = AndroidBridge.exportNativeArchiveJson();
                 if (!raw) return;
+                appendBlockingOverlayLine('构建探索区域');
                 const normalized = window.__fogNormalizeNativeArchiveForWeb
                     ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
                     : normalizeNativeArchiveForWebLocal(JSON.parse(raw));
+                appendBlockingOverlayLine('渲染地图图层');
                 await window.__fogApplyNormalizedArchiveToPage(normalized);
                 reportDebugEvent('web_native_hydration_done', {
                     durationMs: Math.round(performance.now() - hydrateStartedAt),
@@ -543,6 +579,8 @@ button:active { transform: scale(0.92); }
                 });
             } catch (e) {
                 reportDebugEvent('web_native_hydration_error', { error: String(e) });
+            } finally {
+                clearBlockingOverlay();
             }
         }, 300);
     }
@@ -1085,17 +1123,24 @@ button:active { transform: scale(0.92); }
         });
     }
     window.__fogApplyNormalizedArchiveToPage = async function(normalized) {
+        showBlockingOverlay('正在应用数据...');
+        appendBlockingOverlayLine('应用存档数据');
         appData = normalized;
         if (!(window.AndroidBridge && location.protocol === 'file:')) {
+            appendBlockingOverlayLine('写入本地缓存');
             await localforage.setItem(STORAGE_KEY, normalized);
             await localforage.setItem(SNAPSHOT_KEY, normalized);
             await DataManager.clearDiagnostic();
         }
+        appendBlockingOverlayLine('更新统计信息');
         updateStatsUI();
+        appendBlockingOverlayLine('重建时间线');
         buildTimeline();
         if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
         else document.getElementById('toggleTimelineBtn').classList.add('hidden');
+        appendBlockingOverlayLine('渲染图层');
         renderLayers();
+        clearBlockingOverlay();
     };
     localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
 
@@ -1119,7 +1164,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.65',
+            appVersion: 'v0.1.66',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1550,6 +1595,8 @@ button:active { transform: scale(0.92); }
         });
         if (isEditMode) {
             const finishStartedAt = performance.now();
+            showBlockingOverlay('正在完成标记...');
+            appendBlockingOverlayLine('切换编辑状态');
             // 结束手动标记
             isEditMode = false; 
             window.__fogSkipNextIdleRender = true;
@@ -1562,6 +1609,7 @@ button:active { transform: scale(0.92); }
             showTodayBtn.classList.add('hidden'); 
             document.getElementById('searchContainer').classList.add('hidden'); 
             viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; 
+            appendBlockingOverlayLine('合并时序数据');
             const timelineStartedAt = performance.now();
             buildTimeline(); 
             reportDebugEvent('web_finish_mark_after_build_timeline', {
@@ -1571,12 +1619,16 @@ button:active { transform: scale(0.92); }
             if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); 
             if(isMobile) { map.dragging.enable(); document.getElementById('statsPanel').classList.remove('minimized'); }
             
+            appendBlockingOverlayLine('渲染图层');
             const renderStartedAt = performance.now();
             renderLayers(); updateCursor();
             reportDebugEvent('web_finish_mark_after_render', {
                 durationMs: Math.round(performance.now() - renderStartedAt),
                 totalMs: Math.round(performance.now() - finishStartedAt)
             });
+            setTimeout(() => {
+                if (blockingOverlayVisible) clearBlockingOverlay();
+            }, 1200);
         }
     };
 
