@@ -298,24 +298,54 @@ class MainActivity : AppCompatActivity() {
                   const endAutoBtn = document.getElementById('endAutoTrackBtn');
                   if (!autoBtn || !endBtn || !endAutoBtn || window.__fogNativeTrackingUiBound) return false;
 
+                  const formatLastPoint = (timestamp) => {
+                    if (!timestamp) return '暂无';
+                    try {
+                      return new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+                    } catch (_) {
+                      return '暂无';
+                    }
+                  };
+
+                  const refreshNativeTrackingStatus = () => {
+                    try {
+                      const status = JSON.parse(AndroidBridge.getNativeTrackingStatus());
+                      const gpsText = document.getElementById('mainGpsText');
+                      const gpsDot = document.getElementById('mainGpsDot');
+                      const modeText = document.getElementById('trackingModeText');
+                      const lastPointText = document.getElementById('trackingLastPointText');
+                      const segmentText = document.getElementById('trackingSegmentCountText');
+
+                      if (gpsText) gpsText.textContent = status.isTracking ? '自动记录中' : '已暂停记录';
+                      if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
+                      if (modeText) {
+                        modeText.textContent = status.isTracking
+                          ? ('正在记录，草稿 ' + (status.draftPointCount || 0) + ' 点')
+                          : (status.shouldTrack ? '等待恢复记录' : '已暂停');
+                      }
+                      if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
+                      if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                    } catch (e) {
+                      console.warn('Failed to refresh native tracking status', e);
+                    }
+                  };
+
                   const setNativeTrackingUi = (active) => {
                     const mainToggle = document.getElementById('mainToggleContainer');
                     const trackingPanel = document.getElementById('trackingStatusPanel');
-                    const gpsText = document.getElementById('gpsStatusText');
-                    const gpsDot = document.getElementById('gpsStatusDot');
 
                     if (active) {
                       window.__fogNativeTrackMode = true;
                       mainToggle?.classList.add('is-active', 'is-tracking');
                       trackingPanel?.classList.remove('hidden');
-                      if (gpsText) gpsText.textContent = 'APK 后台记录中';
-                      if (gpsDot) gpsDot.className = 'fa-solid fa-circle text-green-400';
                       if (window.updateMainBtnUI) window.updateMainBtnUI('recording');
+                      refreshNativeTrackingStatus();
                     } else {
                       window.__fogNativeTrackMode = false;
                       mainToggle?.classList.remove('is-active', 'is-tracking');
                       trackingPanel?.classList.add('hidden');
                       if (window.updateMainBtnUI) window.updateMainBtnUI();
+                      refreshNativeTrackingStatus();
                     }
                   };
 
@@ -381,9 +411,16 @@ class MainActivity : AppCompatActivity() {
                     const recovery = JSON.parse(AndroidBridge.getNativeRecoveryStatus());
                     if (recovery.shouldTrack || recovery.hasRecoverableDraft) {
                       setNativeTrackingUi(true);
+                    } else {
+                      refreshNativeTrackingStatus();
                     }
                   } catch (e) {
                     console.warn('Failed to read native recovery status', e);
+                  }
+
+                  refreshNativeTrackingStatus();
+                  if (!window.__fogNativeTrackingStatusTimer) {
+                    window.__fogNativeTrackingStatusTimer = setInterval(refreshNativeTrackingStatus, 3000);
                   }
 
                   window.__fogNativeTrackingUiBound = true;
