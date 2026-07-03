@@ -120,7 +120,7 @@ class TrackingForegroundService : Service() {
         if (locationCallback != null) return
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
-            .setMinUpdateDistanceMeters(10f)
+            .setMinUpdateDistanceMeters(0f)
             .setWaitForAccurateLocation(false)
             .setMinUpdateIntervalMillis(5_000L)
             .build()
@@ -140,9 +140,20 @@ class TrackingForegroundService : Service() {
                     //#endregion
                     trackStore.appendDraftPoint(
                         lng = location.longitude,
-                        lat = location.latitude
+                        lat = location.latitude,
+                        accuracy = location.accuracy.toDouble()
                     )
-                    trackStore.checkpointDraftToTrackIfNeeded()
+                    val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 1)
+                    //#region debug-point auto-tracking-broken-service-point-persisted
+                    reportDebugEvent(
+                        "service_location_persisted",
+                        mapOf(
+                            "draftPointCount" to trackStore.readDraftPoints().size.toString(),
+                            "trackCheckpointed" to (track != null).toString(),
+                            "trackCount" to trackStore.readArchiveTracks().size.toString()
+                        )
+                    )
+                    //#endregion
                 }
             }
         }

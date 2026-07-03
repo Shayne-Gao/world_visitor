@@ -329,6 +329,8 @@ class MainActivity : AppCompatActivity() {
                       const lastPointText = document.getElementById('trackingLastPointText');
                       const segmentText = document.getElementById('trackingSegmentCountText');
                       const trackingPanel = document.getElementById('trackingStatusPanel');
+                      const lastLat = Number(status.lastLat);
+                      const lastLng = Number(status.lastLng);
 
                       if (gpsText) gpsText.textContent = status.isTracking ? '自动记录中' : '已暂停记录';
                       if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
@@ -339,9 +341,22 @@ class MainActivity : AppCompatActivity() {
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                      if (Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
+                        window.updateCurrentLocationMarker(lastLat, lastLng);
+                      }
                       if (trackingPanel) {
                         if (status.isTracking || status.shouldTrack || window.isEditMode) trackingPanel.classList.remove('hidden');
                         else trackingPanel.classList.add('hidden');
+                      }
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_native_status_refresh', {
+                          isTracking: String(status.isTracking),
+                          shouldTrack: String(status.shouldTrack),
+                          draftPointCount: String(status.draftPointCount || 0),
+                          trackCount: String(status.trackCount || 0),
+                          lastLat: String(status.lastLat),
+                          lastLng: String(status.lastLng)
+                        });
                       }
                     } catch (e) {
                       console.warn('Failed to refresh native tracking status', e);
@@ -422,7 +437,7 @@ class MainActivity : AppCompatActivity() {
                     window.__fogNativeTrackingStatusTimer = setInterval(() => {
                       refreshNativeTrackingStatus();
                       syncNativeArchiveIfAdvanced();
-                    }, 3000);
+                    }, 1500);
                   }
 
                   window.__fogNativeTrackingUiBound = true;

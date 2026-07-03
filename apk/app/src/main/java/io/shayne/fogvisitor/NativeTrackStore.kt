@@ -32,7 +32,7 @@ class NativeTrackStore(private val context: Context) {
         migrateLegacyJsonIfNeeded()
     }
 
-    fun appendDraftPoint(lng: Double, lat: Double) {
+    fun appendDraftPoint(lng: Double, lat: Double, accuracy: Double? = null) {
         val points = readDraftPoints().toMutableList()
         points.add(listOf(lng, lat))
         writeDraftPoints(points)
@@ -40,7 +40,10 @@ class NativeTrackStore(private val context: Context) {
             isTracking = true,
             shouldTrack = true,
             draftPointCount = points.size,
-            lastPointAt = System.currentTimeMillis()
+            lastPointAt = System.currentTimeMillis(),
+            lastLng = lng,
+            lastLat = lat,
+            lastAccuracy = accuracy
         )
     }
 
@@ -247,6 +250,9 @@ class NativeTrackStore(private val context: Context) {
             put("shouldTrack", prefs.getBoolean(KEY_SHOULD_TRACK, false))
             put("draftPointCount", prefs.getInt(KEY_DRAFT_COUNT, 0))
             put("lastPointAt", prefs.getLong(KEY_LAST_POINT_AT, 0L))
+            put("lastLng", Double.fromBits(prefs.getLong(KEY_LAST_LNG_BITS, Double.NaN.toBits())))
+            put("lastLat", Double.fromBits(prefs.getLong(KEY_LAST_LAT_BITS, Double.NaN.toBits())))
+            put("lastAccuracy", Double.fromBits(prefs.getLong(KEY_LAST_ACCURACY_BITS, Double.NaN.toBits())))
             put("trackCount", dao.getTrackCount())
             put("archivePath", "room://fog_visitor_truth.db/track_segments")
             put("draftPath", "room://fog_visitor_truth.db/draft_points")
@@ -305,7 +311,10 @@ class NativeTrackStore(private val context: Context) {
             isTracking = false,
             shouldTrack = false,
             draftPointCount = 0,
-            lastPointAt = 0L
+            lastPointAt = 0L,
+            lastLng = null,
+            lastLat = null,
+            lastAccuracy = null
         )
     }
 
@@ -340,13 +349,22 @@ class NativeTrackStore(private val context: Context) {
         isTracking: Boolean,
         shouldTrack: Boolean,
         draftPointCount: Int,
-        lastPointAt: Long? = null
+        lastPointAt: Long? = null,
+        lastLng: Double? = null,
+        lastLat: Double? = null,
+        lastAccuracy: Double? = null
     ) {
         prefs.edit().apply {
             putBoolean(KEY_IS_TRACKING, isTracking)
             putBoolean(KEY_SHOULD_TRACK, shouldTrack)
             putInt(KEY_DRAFT_COUNT, draftPointCount)
             if (lastPointAt != null) putLong(KEY_LAST_POINT_AT, lastPointAt)
+            if (lastLng != null) putLong(KEY_LAST_LNG_BITS, lastLng.toBits())
+            if (lastLat != null) putLong(KEY_LAST_LAT_BITS, lastLat.toBits())
+            if (lastAccuracy != null) putLong(KEY_LAST_ACCURACY_BITS, lastAccuracy.toBits())
+            if (lastLng == null) remove(KEY_LAST_LNG_BITS)
+            if (lastLat == null) remove(KEY_LAST_LAT_BITS)
+            if (lastAccuracy == null) remove(KEY_LAST_ACCURACY_BITS)
         }.apply()
     }
 
@@ -475,6 +493,9 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_SHOULD_TRACK = "should_track"
         private const val KEY_DRAFT_COUNT = "draft_count"
         private const val KEY_LAST_POINT_AT = "last_point_at"
+        private const val KEY_LAST_LNG_BITS = "last_lng_bits"
+        private const val KEY_LAST_LAT_BITS = "last_lat_bits"
+        private const val KEY_LAST_ACCURACY_BITS = "last_accuracy_bits"
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
     }
