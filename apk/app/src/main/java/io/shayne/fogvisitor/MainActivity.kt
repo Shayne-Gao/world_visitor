@@ -293,10 +293,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 const bindNativeTrackingUi = () => {
-                  const autoBtn = document.getElementById('autoTrackBtn');
+                  const manualBtn = document.getElementById('manualDrawBtn');
                   const endBtn = document.getElementById('endActionBtn');
+                  const autoBtn = document.getElementById('autoTrackBtn');
                   const endAutoBtn = document.getElementById('endAutoTrackBtn');
-                  if (!autoBtn || !endBtn || !endAutoBtn || window.__fogNativeTrackingUiBound) return false;
+                  if (!manualBtn || !endBtn || !autoBtn || !endAutoBtn || window.__fogNativeTrackingUiBound) return false;
 
                   const formatLastPoint = (timestamp) => {
                     if (!timestamp) return '暂无';
@@ -342,70 +343,47 @@ class MainActivity : AppCompatActivity() {
                       refreshNativeTrackingStatus();
                     } else {
                       window.__fogNativeTrackMode = false;
-                      mainToggle?.classList.remove('is-active', 'is-tracking');
-                      trackingPanel?.classList.add('hidden');
-                      if (window.updateMainBtnUI) window.updateMainBtnUI();
+                      mainToggle?.classList.remove('is-tracking');
+                      trackingPanel?.classList.remove('hidden');
                       refreshNativeTrackingStatus();
                     }
                   };
 
-                  autoBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
+                  autoBtn.style.display = 'none';
+                  endAutoBtn.style.display = 'none';
+
+                  manualBtn.addEventListener('click', (e) => {
+                    if (window.reportDebugEvent) {
+                      window.reportDebugEvent('web_native_manual_mark_enter', {
+                        nativeTracking: String(window.__fogNativeTrackMode)
+                      });
+                    }
+                    window.__fogResumeAfterManual = !!window.__fogNativeTrackMode;
+                    if (!window.__fogNativeTrackMode) return;
                     try {
-                      if (window.reportDebugEvent) {
-                        window.reportDebugEvent('web_native_auto_track_intercepted', {});
-                      }
-                      AndroidBridge.startBackgroundTracking();
-                      setNativeTrackingUi(true);
+                      AndroidBridge.stopBackgroundTracking();
+                      setNativeTrackingUi(false);
                     } catch (err) {
-                      if (window.reportDebugEvent) {
-                        window.reportDebugEvent('web_native_auto_track_intercept_error', { error: String(err) });
-                      }
-                      console.warn('Failed to start native tracking', err);
+                      console.warn('Failed to pause native tracking for manual mark', err);
                     }
                   }, true);
 
-                  const stopNativeTracking = async (e) => {
-                    if (!window.__fogNativeTrackMode) return;
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
-                    try {
-                      const beforeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
-                      if (window.reportDebugEvent) {
-                        window.reportDebugEvent('web_native_stop_track_intercepted', {});
-                      }
-                      AndroidBridge.stopBackgroundTracking();
-                      setNativeTrackingUi(false);
-                      setTimeout(async () => {
-                        try {
-                          const replaced = await syncNativeArchiveToLocal();
-                          const afterSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
-                          const nativeAdvanced =
-                            afterSummary.trackCount > beforeSummary.trackCount ||
-                            afterSummary.latestTimestamp > beforeSummary.latestTimestamp;
-                          if ((replaced || nativeAdvanced) && window.__fogApplyNormalizedArchiveToPage) {
-                            const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
-                            const normalized = window.__fogNormalizeNativeArchiveForWeb
-                              ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
-                              : rawArchive;
-                            await window.__fogApplyNormalizedArchiveToPage(normalized);
-                          } else if (!window.__fogApplyNormalizedArchiveToPage) {
-                            location.reload();
-                          } else if (window.AndroidBridge && window.AndroidBridge.showNativeToast) {
-                            window.AndroidBridge.showNativeToast('本次未生成新的追踪轨迹');
-                          }
-                        } catch (reloadErr) {
-                          console.warn('Failed to reload native archive after stop', reloadErr);
-                        }
-                      }, 1200);
-                    } catch (err) {
-                      console.warn('Failed to stop native tracking', err);
+                  endBtn.addEventListener('click', (e) => {
+                    if (!window.__fogResumeAfterManual) return;
+                    if (window.reportDebugEvent) {
+                      window.reportDebugEvent('web_native_manual_mark_exit', {});
                     }
-                  };
-
-                  endBtn.addEventListener('click', stopNativeTracking, true);
-                  endAutoBtn.addEventListener('click', stopNativeTracking, true);
+                    setTimeout(() => {
+                      try {
+                        AndroidBridge.startBackgroundTracking();
+                        setNativeTrackingUi(true);
+                      } catch (err) {
+                        console.warn('Failed to resume native tracking after manual mark', err);
+                      } finally {
+                        window.__fogResumeAfterManual = false;
+                      }
+                    }, 0);
+                  }, true);
 
                   try {
                     const recovery = JSON.parse(AndroidBridge.getNativeRecoveryStatus());

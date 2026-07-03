@@ -65,7 +65,7 @@ button:active { transform: scale(0.92); }
 .split-btn i { font-size: 15px; }
 
 /* 70% 自动追踪区域 */
-#autoTrackBtn { width: 140px; border-right: 1px solid #eaeaea; }
+#autoTrackBtn { display: none !important; width: 0; border-right: none; }
 #autoTrackBtn i { color: #28a745; }
 #autoTrackBtn:hover { background: #f8f9fa; }
 #autoTrackBtn:active { background: #e9ecef; }
@@ -75,18 +75,18 @@ button:active { transform: scale(0.92); }
 #autoTrackBtn.status-btn:active { background: #e9f7ef; transform: none; }
 
 /* 30% 手动标记区域 */
-#manualDrawBtn { width: 80px; }
+#manualDrawBtn { width: 140px; }
 #manualDrawBtn i { color: #007bff; }
 #manualDrawBtn:hover { background: #f8f9fa; }
 #manualDrawBtn:active { background: #e9ecef; }
 
 /* 统一的结束按钮状态 (占满100%) */
-#endActionBtn { width: 220px; background: #dc3545; color: white; display: none; }
+#endActionBtn { width: 140px; background: #dc3545; color: white; display: none; }
 #endActionBtn i { color: white; }
 #endActionBtn:hover { background: #c82333; }
 
 /* 自动追踪时的 3/7 分割状态 */
-#endAutoTrackBtn { width: 140px; background: #dc3545; color: white; display: none; border-right: 1px solid rgba(255,255,255,0.2); }
+#endAutoTrackBtn { display: none !important; width: 0; background: #dc3545; color: white; border-right: none; }
 #endAutoTrackBtn i { color: white; }
 #endAutoTrackBtn:hover { background: #c82333; }
 
@@ -95,10 +95,9 @@ button:active { transform: scale(0.92); }
 #pocketModeBtn:hover { background: #23272b; }
 
 #mainToggleContainer.is-active #manualDrawBtn { display: none; }
-#mainToggleContainer.is-active:not(.is-tracking) #autoTrackBtn { display: none; }
 #mainToggleContainer.is-active #endActionBtn { display: flex; }
 #mainToggleContainer.is-active.is-tracking #endActionBtn { display: none; }
-#mainToggleContainer.is-active.is-tracking #autoTrackBtn, #mainToggleContainer.is-active.is-tracking #endAutoTrackBtn, #mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: flex; }
+#mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: flex; }
 #mainToggleContainer.is-active { border-color: #dc3545; }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
@@ -177,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.55 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.56 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -248,8 +247,8 @@ button:active { transform: scale(0.92); }
 
 <div id="mainToggleContainer" class="btn-shadow">
     <button id="autoTrackBtn" class="split-btn"><i class="fa-solid fa-person-walking"></i> 自动记录中</button>
-    <button id="manualDrawBtn" class="split-btn"><i class="fa-solid fa-pen"></i> 标记</button>
-    <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成</button>
+    <button id="manualDrawBtn" class="split-btn"><i class="fa-solid fa-pen"></i> 开始标记</button>
+    <button id="endActionBtn" class="split-btn"><i class="fa-solid fa-check"></i> 完成标记</button>
     
     <button id="endAutoTrackBtn" class="split-btn"><i class="fa-solid fa-stop"></i> 暂停记录</button>
     <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i>息屏</button>
@@ -805,10 +804,6 @@ button:active { transform: scale(0.92); }
         if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
         if (stateOverride === 'recording') { 
             mainToggleContainer.classList.add('is-active', 'is-tracking'); 
-            document.getElementById('autoTrackBtn').innerHTML = '<i class="fa-solid fa-person-walking"></i> 自动记录中';
-            document.getElementById('autoTrackBtn').classList.add('status-btn');
-            document.getElementById('autoTrackBtn').disabled = true;
-            document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-stop"></i> 暂停记录';
             document.getElementById('trackingStatusPanel').classList.remove('hidden');
             renderLayers(); // 强制重新渲染图层以隐藏迷雾
             return; 
@@ -816,18 +811,17 @@ button:active { transform: scale(0.92); }
         
         if (!isEditMode && !isAutoRecording) { 
             mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
-            document.getElementById('autoTrackBtn').innerHTML = '<i class="fa-solid fa-person-walking"></i> 自动记录中';
-            document.getElementById('autoTrackBtn').classList.remove('status-btn');
-            document.getElementById('autoTrackBtn').disabled = false;
-            document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-stop"></i> 暂停记录';
             document.getElementById('trackingStatusPanel').classList.add('hidden');
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
             renderLayers(); // 恢复迷雾显示
         } else if (isEditMode) { 
+            document.getElementById('manualDrawBtn').innerHTML = '<i class="fa-solid fa-pen"></i> 标记中';
             document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
             mainToggleContainer.classList.add('is-active'); 
             mainToggleContainer.classList.remove('is-tracking');
             if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
+        } else {
+            document.getElementById('manualDrawBtn').innerHTML = '<i class="fa-solid fa-pen"></i> 开始标记';
         }
     }
 
@@ -1044,7 +1038,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.55',
+            appVersion: 'v0.1.56',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
