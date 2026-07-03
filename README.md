@@ -4,6 +4,14 @@
 
 ---
 
+## [v0.1.63] - 2026-04-24
+### 🩹 Large Data Mark Finish Tuning (大数据完成标记收尾调优)
+* **点击版本号即可复制诊断信息**：不再要求长按，降低运行时日志收集门槛。
+* **完成标记增加更细粒度耗时打点**：新增退出编辑态后的 `updateUI / buildTimeline / render` 阶段日志，用于继续钉死大数据下残余卡顿点。
+* **避免完成标记时的重复全量重绘**：退出编辑态时跳过一次冗余的 idle render，减少大数据下完成标记后的重复渲染成本。
+
+---
+
 ## [v0.1.62] - 2026-04-24
 ### 🚀 Startup & Save Path Fixes (首屏直读与缓存阻塞修复)
 * **修复 APK 首屏读成 empty**：页面在原生 normalizer 尚未注入前，改为使用内置 `normalizeNativeArchiveForWebLocal()` 直接把原生 truth 转成可渲染结构，避免先空白再等晚同步。
