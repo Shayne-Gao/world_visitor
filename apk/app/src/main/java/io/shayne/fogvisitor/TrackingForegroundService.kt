@@ -21,6 +21,8 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import java.net.HttpURLConnection
+import java.net.URL
 
 class TrackingForegroundService : Service() {
 
@@ -35,9 +37,18 @@ class TrackingForegroundService : Service() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         trackStore = NativeTrackStore(this)
+        //#region debug-point apk-ui-storage-regression-service-create
+        reportDebugEvent("service_on_create", emptyMap())
+        //#endregion
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        //#region debug-point apk-ui-storage-regression-service-start-command
+        reportDebugEvent(
+            "service_on_start_command",
+            mapOf("action" to (intent?.action ?: "null"))
+        )
+        //#endregion
         when (intent?.action) {
             ACTION_START -> startInForeground()
             ACTION_STOP -> stopSelfSafely()
@@ -51,6 +62,9 @@ class TrackingForegroundService : Service() {
         isExplicitStop = false
         trackStore.markTrackingRequested(true)
         trackStore.markTrackingRunning(true, shouldTrack = true)
+        //#region debug-point apk-ui-storage-regression-service-foreground
+        reportDebugEvent("service_start_in_foreground", emptyMap())
+        //#endregion
         startLocationUpdates()
     }
 
@@ -87,6 +101,15 @@ class TrackingForegroundService : Service() {
     }
 
     private fun startLocationUpdates() {
+        //#region debug-point apk-ui-storage-regression-service-location-start
+        reportDebugEvent(
+            "service_start_location_updates",
+            mapOf(
+                "hasPermission" to hasLocationPermission().toString(),
+                "hasCallback" to (locationCallback != null).toString()
+            )
+        )
+        //#endregion
         if (!hasLocationPermission()) return
         if (locationCallback != null) return
 
@@ -99,6 +122,16 @@ class TrackingForegroundService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { location ->
+                    //#region debug-point apk-ui-storage-regression-service-location-result
+                    reportDebugEvent(
+                        "service_location_result",
+                        mapOf(
+                            "lat" to location.latitude.toString(),
+                            "lng" to location.longitude.toString(),
+                            "acc" to location.accuracy.toString()
+                        )
+                    )
+                    //#endregion
                     trackStore.appendDraftPoint(
                         lng = location.longitude,
                         lat = location.latitude
@@ -164,4 +197,41 @@ class TrackingForegroundService : Service() {
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
     }
+
+    //#region debug-point apk-ui-storage-regression-service-reporter
+    private fun reportDebugEvent(name: String, payload: Map<String, String>) {
+        Thread {
+            runCatching {
+                val body = buildString {
+                    append("{")
+                    append("\"session_id\":\"apk-ui-storage-regression\",")
+                    append("\"event\":\"").append(jsonEscape(name)).append("\",")
+                    append("\"payload\":{")
+                    append(payload.entries.joinToString(",") { entry ->
+                        "\"${jsonEscape(entry.key)}\":\"${jsonEscape(entry.value)}\""
+                    })
+                    append("}}")
+                }
+                val conn = (URL("http://127.0.0.1:7777/event").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 1000
+                    readTimeout = 1000
+                }
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                conn.inputStream.close()
+                conn.disconnect()
+            }
+        }.start()
+    }
+
+    private fun jsonEscape(value: String): String {
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "")
+    }
+    //#endregion
 }

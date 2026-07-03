@@ -217,10 +217,51 @@ class MainActivity : AppCompatActivity() {
                   if (!window.DataManager || !window.DataManager.saveData || window.__fogSaveHookInstalled) return false;
                   const originalSave = window.DataManager.saveData.bind(window.DataManager);
                   window.DataManager.saveData = async function(data) {
+                    const hookStartedAt = performance.now();
+                    if (window.reportDebugEvent) {
+                      window.reportDebugEvent('web_save_hook_entered', {
+                        trackCount: String(data?.sourceOfTruth?.tracks?.length || 0)
+                      });
+                    }
                     await originalSave(data);
                     try {
-                      AndroidBridge.importNativeArchiveJson(JSON.stringify(data), false);
+                      const syncPayload = {
+                        version: data?.version || '2.0.0',
+                        metadata: {
+                          totalAreaKm2: data?.metadata?.totalAreaKm2 || 0,
+                          createdAt: data?.metadata?.createdAt || Date.now()
+                        },
+                        sourceOfTruth: {
+                          tracks: data?.sourceOfTruth?.tracks || []
+                        }
+                      };
+                      setTimeout(() => {
+                        try {
+                          const nativeSyncStartedAt = performance.now();
+                          AndroidBridge.importNativeArchiveJson(JSON.stringify(syncPayload), false);
+                          if (window.reportDebugEvent) {
+                            window.reportDebugEvent('web_save_hook_native_sync_done', {
+                              durationMs: Math.round(performance.now() - nativeSyncStartedAt),
+                              totalMs: Math.round(performance.now() - hookStartedAt),
+                              trackCount: String(syncPayload.sourceOfTruth.tracks.length)
+                            });
+                          }
+                        } catch (deferredErr) {
+                          if (window.reportDebugEvent) {
+                            window.reportDebugEvent('web_save_hook_native_sync_error', {
+                              error: String(deferredErr),
+                              totalMs: Math.round(performance.now() - hookStartedAt)
+                            });
+                          }
+                        }
+                      }, 0);
                     } catch (e) {
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_save_hook_native_sync_error', {
+                          error: String(e),
+                          totalMs: Math.round(performance.now() - hookStartedAt)
+                        });
+                      }
                       console.warn('Native archive sync failed:', e);
                     }
                   };
@@ -237,7 +278,8 @@ class MainActivity : AppCompatActivity() {
                 const bindNativeTrackingUi = () => {
                   const autoBtn = document.getElementById('autoTrackBtn');
                   const endBtn = document.getElementById('endActionBtn');
-                  if (!autoBtn || !endBtn || window.__fogNativeTrackingUiBound) return false;
+                  const endAutoBtn = document.getElementById('endAutoTrackBtn');
+                  if (!autoBtn || !endBtn || !endAutoBtn || window.__fogNativeTrackingUiBound) return false;
 
                   const setNativeTrackingUi = (active) => {
                     const mainToggle = document.getElementById('mainToggleContainer');
@@ -251,7 +293,7 @@ class MainActivity : AppCompatActivity() {
                       trackingPanel?.classList.remove('hidden');
                       if (gpsText) gpsText.textContent = 'APK 后台记录中';
                       if (gpsDot) gpsDot.className = 'fa-solid fa-circle text-green-400';
-                      if (window.updateMainBtnUI) window.updateMainBtnUI('tracking');
+                      if (window.updateMainBtnUI) window.updateMainBtnUI('recording');
                     } else {
                       window.__fogNativeTrackMode = false;
                       mainToggle?.classList.remove('is-active', 'is-tracking');
@@ -264,24 +306,41 @@ class MainActivity : AppCompatActivity() {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     try {
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_native_auto_track_intercepted', {});
+                      }
                       AndroidBridge.startBackgroundTracking();
                       setNativeTrackingUi(true);
                     } catch (err) {
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_native_auto_track_intercept_error', { error: String(err) });
+                      }
                       console.warn('Failed to start native tracking', err);
                     }
                   }, true);
 
-                  endBtn.addEventListener('click', async (e) => {
+                  const stopNativeTracking = async (e) => {
                     if (!window.__fogNativeTrackMode) return;
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     try {
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_native_stop_track_intercepted', {});
+                      }
                       AndroidBridge.stopBackgroundTracking();
                       setNativeTrackingUi(false);
                       setTimeout(async () => {
                         try {
                           await syncNativeArchiveToLocal();
-                          location.reload();
+                          if (window.__fogApplyNormalizedArchiveToPage) {
+                            const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                            const normalized = window.__fogNormalizeNativeArchiveForWeb
+                              ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
+                              : rawArchive;
+                            await window.__fogApplyNormalizedArchiveToPage(normalized);
+                          } else {
+                            location.reload();
+                          }
                         } catch (reloadErr) {
                           console.warn('Failed to reload native archive after stop', reloadErr);
                         }
@@ -289,7 +348,10 @@ class MainActivity : AppCompatActivity() {
                     } catch (err) {
                       console.warn('Failed to stop native tracking', err);
                     }
-                  }, true);
+                  };
+
+                  endBtn.addEventListener('click', stopNativeTracking, true);
+                  endAutoBtn.addEventListener('click', stopNativeTracking, true);
 
                   try {
                     const recovery = JSON.parse(AndroidBridge.getNativeRecoveryStatus());
@@ -358,6 +420,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startNativeTrackingService() {
+        //#region debug-point apk-ui-storage-regression-native-start-service
+        reportDebugEvent(
+            "native_start_tracking_service_called",
+            mapOf("hasFine" to hasForegroundLocationPermission().toString())
+        )
+        //#endregion
         val intent = Intent(this, TrackingForegroundService::class.java).apply {
             action = TrackingForegroundService.ACTION_START
         }
@@ -365,6 +433,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopNativeTrackingService() {
+        //#region debug-point apk-ui-storage-regression-native-stop-service
+        reportDebugEvent("native_stop_tracking_service_called", emptyMap())
+        //#endregion
         val intent = Intent(this, TrackingForegroundService::class.java).apply {
             action = TrackingForegroundService.ACTION_STOP
         }
