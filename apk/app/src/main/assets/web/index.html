@@ -176,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.58 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.59 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -963,6 +963,10 @@ button:active { transform: scale(0.92); }
             buildTimeline();
             if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
             renderLayers();
+            if (!window.__fogStartupLocateRequested && navigator.geolocation) {
+                window.__fogStartupLocateRequested = true;
+                setTimeout(() => locateMe({ auto: true, silent: true }), 600);
+            }
             
             // 启动时设置地图中心为最后一次的记录点
             if (appData.sourceOfTruth && appData.sourceOfTruth.tracks && appData.sourceOfTruth.tracks.length > 0) {
@@ -1023,7 +1027,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.58',
+            appVersion: 'v0.1.59',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1117,16 +1121,17 @@ button:active { transform: scale(0.92); }
     document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
     document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
 
-    function locateMe() {
+    function locateMe(options = {}) {
+        const { auto = false, silent = false } = options;
         if(navigator.geolocation) {
-            updateMainBtnUI('locating');
+            if (!auto) updateMainBtnUI('locating');
             navigator.geolocation.getCurrentPosition(pos => {
                 let lat = pos.coords.latitude, lng = pos.coords.longitude; 
-                map.flyTo([lat, lng], 16); 
+                if (auto && !currentLocationMarker) map.setView([lat, lng], 16);
+                else map.flyTo([lat, lng], 16); 
                 updateCurrentLocationMarker(lat, lng);
-                updateMainBtnUI();
-                currentPath = [[lng, lat]]; endDraw(true); 
-            }, (err) => { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                if (!window.__fogNativeTrackMode) updateMainBtnUI();
+            }, (err) => { if (!silent) { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); } updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
     document.getElementById('locateBtn').onclick = locateMe; 
@@ -1223,8 +1228,10 @@ button:active { transform: scale(0.92); }
         });
     }
 
-    // 进入省电模式
+    // 进入省电模式（APK 版已弃用，保留空实现避免旧逻辑报错）
     document.getElementById('pocketModeBtn').onclick = () => {
+        return;
+        /*
         isPocketMode = true;
         pocketStartTime = Date.now();
         if (batteryObj) {
@@ -1245,13 +1252,14 @@ button:active { transform: scale(0.92); }
         document.getElementById('pocketModeOverlay').classList.add('active');
         document.getElementById('map').style.display = 'none'; // 彻底隐藏地图，停止 Leaflet 渲染
         updatePocketUI(0, 0, 0);
+        */
     };
 
-    // 滑动解锁退出省电模式
+    // 滑动解锁退出省电模式（仅在旧 DOM 仍存在时启用）
     const thumb = document.getElementById('slideThumb');
     const container = document.getElementById('slideUnlockContainer');
     let isSliding = false, startX = 0;
-    
+    if (thumb && container) {
     thumb.addEventListener('touchstart', e => { isSliding = true; startX = e.touches[0].clientX; thumb.style.transition = 'none'; });
     thumb.addEventListener('touchmove', e => {
         if(!isSliding) return;
@@ -1300,6 +1308,7 @@ button:active { transform: scale(0.92); }
         }
     });
     thumb.addEventListener('touchend', () => { if(isSliding) { isSliding = false; thumb.style.transition = 'transform 0.3s ease'; thumb.style.transform = `translateX(0px)`; } });
+    }
 
     document.getElementById('autoTrackBtn').onclick = async () => {
         reportDebugEvent('web_auto_track_web_handler_entered', {

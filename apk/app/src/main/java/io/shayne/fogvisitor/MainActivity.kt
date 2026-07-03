@@ -308,6 +308,33 @@ class MainActivity : AppCompatActivity() {
                     }
                   };
 
+                  const syncNativeArchiveIfAdvanced = async () => {
+                    try {
+                      const summary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                      const previous = window.__fogLastNativeArchiveSummary || { trackCount: 0, latestTimestamp: 0 };
+                      const advanced =
+                        summary.trackCount > previous.trackCount ||
+                        summary.latestTimestamp > previous.latestTimestamp;
+                      window.__fogLastNativeArchiveSummary = summary;
+                      if (!advanced || window.isEditMode) return;
+                      const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+                      const normalized = window.__fogNormalizeNativeArchiveForWeb
+                        ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
+                        : rawArchive;
+                      if (window.__fogApplyNormalizedArchiveToPage) {
+                        await window.__fogApplyNormalizedArchiveToPage(normalized);
+                        if (window.reportDebugEvent) {
+                          window.reportDebugEvent('web_native_archive_incremental_sync', {
+                            trackCount: String(summary.trackCount),
+                            latestTimestamp: String(summary.latestTimestamp)
+                          });
+                        }
+                      }
+                    } catch (e) {
+                      console.warn('Failed to sync incremental native archive', e);
+                    }
+                  };
+
                   const refreshNativeTrackingStatus = () => {
                     try {
                       const status = JSON.parse(AndroidBridge.getNativeTrackingStatus());
@@ -403,7 +430,10 @@ class MainActivity : AppCompatActivity() {
 
                   refreshNativeTrackingStatus();
                   if (!window.__fogNativeTrackingStatusTimer) {
-                    window.__fogNativeTrackingStatusTimer = setInterval(refreshNativeTrackingStatus, 3000);
+                    window.__fogNativeTrackingStatusTimer = setInterval(() => {
+                      refreshNativeTrackingStatus();
+                      syncNativeArchiveIfAdvanced();
+                    }, 3000);
                   }
 
                   window.__fogNativeTrackingUiBound = true;
