@@ -28,12 +28,15 @@ class NativeTrackStore(private val context: Context) {
     private val legacyArchiveBackupFile = File(context.filesDir, "fog_apk_archive.backup.json")
     private val legacyDraftFile = File(context.filesDir, "fog_apk_draft.json")
     private val legacyDraftBackupFile = File(context.filesDir, "fog_apk_draft.backup.json")
+    private val exploredCellsFile = File(context.filesDir, "fog_apk_explored_cells_v1.txt")
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     private val dao: TrackDao = FogVisitorDatabase.getInstance(context).trackDao()
     private val storeThreadRef = AtomicReference<Thread?>(null)
     private val storeExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "fog-visitor-store").also { storeThreadRef.set(it) }
     }
+    private val exploredCells = linkedSetOf<String>()
+    private var exploredCellsLoaded = false
 
     init {
         migrateLegacyJsonIfNeeded()
@@ -87,8 +90,7 @@ class NativeTrackStore(private val context: Context) {
                 encodedPath = PolylineCodec.encode(points),
                 bbox = PolylineCodec.calculateBbox(points)
             )
-
-            dao.upsertTrack(track.toEntity())
+            val persistResult = persistTrackCandidate(track)
 
             val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
             val lastPoint = points.lastOrNull()
@@ -101,7 +103,7 @@ class NativeTrackStore(private val context: Context) {
                 lastLng = lastPoint?.getOrNull(0),
                 lastLat = lastPoint?.getOrNull(1)
             )
-            track
+            persistResult.track
         }
     }
 
@@ -121,8 +123,7 @@ class NativeTrackStore(private val context: Context) {
                 encodedPath = PolylineCodec.encode(points),
                 bbox = PolylineCodec.calculateBbox(points)
             )
-
-            dao.upsertTrack(track.toEntity())
+            val persistResult = persistTrackCandidate(track)
             val lastPoint = points.lastOrNull()
             clearDraft()
             updateStatus(
@@ -133,7 +134,7 @@ class NativeTrackStore(private val context: Context) {
                 lastLng = lastPoint?.getOrNull(0),
                 lastLat = lastPoint?.getOrNull(1)
             )
-            track
+            persistResult.track
         }
     }
 
@@ -204,7 +205,7 @@ class NativeTrackStore(private val context: Context) {
     fun appendTrackJson(rawJson: String): String {
         return runStore {
             val track = trackFromJson(JSONObject(rawJson))
-            dao.upsertTrack(track.toEntity())
+            val persistResult = persistTrackCandidate(track)
             val shouldUpdateLiveLocation = isLiveLocationSource(track.source)
             val lastPoint = if (shouldUpdateLiveLocation) extractLastPoint(track) else null
             updateStatus(
@@ -219,7 +220,9 @@ class NativeTrackStore(private val context: Context) {
             JSONObject().apply {
                 put("ok", true)
                 put("trackId", track.id)
-                put("trackCount", dao.getTrackCount())
+                put("persisted", persistResult.persisted)
+                put("reason", persistResult.reason)
+                put("trackCount", persistResult.trackCount)
                 put("latestTimestamp", track.timestamp)
             }.toString()
         }
@@ -233,6 +236,7 @@ class NativeTrackStore(private val context: Context) {
             }.sortedBy { it.timestamp }
             dao.replaceAllTracks(tracks.map { it.toEntity() })
             dao.clearDraftPoints()
+            replaceExploredCells(tracks)
             val lastTrack = tracks.lastOrNull()
             val lastPoint = lastTrack?.let(::extractLastPoint)
             updateStatus(
@@ -310,6 +314,7 @@ class NativeTrackStore(private val context: Context) {
             if (!merge) {
                 dao.clearDraftPoints()
             }
+            replaceExploredCells(finalTracks)
             val lastTrack = finalTracks.lastOrNull()
             val lastPoint = lastTrack?.let(::extractLastPoint)
             updateStatus(
@@ -430,6 +435,7 @@ class NativeTrackStore(private val context: Context) {
         runStore {
             dao.clearTracks()
             dao.clearDraftPoints()
+            replaceExploredCells(emptyList())
             updateStatus(
                 isTracking = false,
                 shouldTrack = false,
@@ -459,6 +465,7 @@ class NativeTrackStore(private val context: Context) {
 
     private fun writeArchiveTracks(tracks: List<TrackRecord>) {
         dao.replaceAllTracks(tracks.map { it.toEntity() })
+        replaceExploredCells(tracks)
     }
 
     private fun writeDraftPoints(points: List<List<Double>>) {
@@ -574,6 +581,123 @@ class NativeTrackStore(private val context: Context) {
         return runCatching {
             PolylineCodec.decode(track.encodedPath).lastOrNull()
         }.getOrNull()
+    }
+
+    private data class PersistTrackResult(
+        val persisted: Boolean,
+        val reason: String,
+        val trackCount: Int,
+        val track: TrackRecord?
+    )
+
+    private fun persistTrackCandidate(track: TrackRecord): PersistTrackResult {
+        val candidateCells = collectTrackCells(track)
+        val hasNewExploredCells = candidateCells.any { it !in getExploredCells() }
+        if (!hasNewExploredCells) {
+            return PersistTrackResult(
+                persisted = false,
+                reason = "already_explored",
+                trackCount = dao.getTrackCount(),
+                track = null
+            )
+        }
+        dao.upsertTrack(track.toEntity())
+        appendExploredCells(candidateCells)
+        return PersistTrackResult(
+            persisted = true,
+            reason = "persisted",
+            trackCount = dao.getTrackCount(),
+            track = track
+        )
+    }
+
+    private fun getExploredCells(): MutableSet<String> {
+        if (!exploredCellsLoaded) {
+            exploredCells.clear()
+            if (exploredCellsFile.exists()) {
+                exploredCellsFile.forEachLine { line ->
+                    val cell = line.trim()
+                    if (cell.isNotEmpty()) exploredCells.add(cell)
+                }
+            }
+            if (exploredCells.isEmpty() && dao.getTrackCount() > 0) {
+                replaceExploredCells(dao.getAllTracks().map { it.toModel() })
+            }
+            exploredCellsLoaded = true
+        }
+        return exploredCells
+    }
+
+    private fun appendExploredCells(cells: Set<String>) {
+        if (cells.isEmpty()) return
+        val known = getExploredCells()
+        val newCells = cells.filter { known.add(it) }
+        if (newCells.isEmpty()) return
+        if (!exploredCellsFile.exists()) {
+            exploredCellsFile.parentFile?.mkdirs()
+            exploredCellsFile.createNewFile()
+        }
+        exploredCellsFile.appendText(newCells.joinToString(separator = "\n", postfix = "\n"))
+    }
+
+    private fun replaceExploredCells(tracks: List<TrackRecord>) {
+        val rebuilt = linkedSetOf<String>()
+        tracks.forEach { rebuilt.addAll(collectTrackCells(it)) }
+        exploredCells.clear()
+        exploredCells.addAll(rebuilt)
+        exploredCellsLoaded = true
+        if (rebuilt.isEmpty()) {
+            if (exploredCellsFile.exists()) exploredCellsFile.delete()
+            return
+        }
+        exploredCellsFile.parentFile?.mkdirs()
+        exploredCellsFile.writeText(rebuilt.joinToString(separator = "\n", postfix = "\n"))
+    }
+
+    private fun collectTrackCells(track: TrackRecord): Set<String> {
+        val coords = runCatching { PolylineCodec.decode(track.encodedPath) }.getOrElse { emptyList() }
+        if (coords.isEmpty()) return emptySet()
+        val sampled = mutableListOf<List<Double>>()
+        sampled.add(coords.first())
+        for (index in 1 until coords.size) {
+            val previous = coords[index - 1]
+            val current = coords[index]
+            sampled.addAll(sampleSegment(previous, current))
+        }
+        val radiusMeters = (track.brushRadiusKm * 1000.0).coerceAtLeast(CELL_SIZE_METERS)
+        val cellRadius = kotlin.math.ceil(radiusMeters / CELL_SIZE_METERS).toInt()
+        val cells = linkedSetOf<String>()
+        sampled.forEach { point ->
+            val base = toCell(point[1], point[0])
+            for (dx in -cellRadius..cellRadius) {
+                for (dy in -cellRadius..cellRadius) {
+                    cells.add("${base.first + dx}:${base.second + dy}")
+                }
+            }
+        }
+        return cells
+    }
+
+    private fun sampleSegment(start: List<Double>, end: List<Double>): List<List<Double>> {
+        val distance = distanceMeters(start[1], start[0], end[1], end[0])
+        if (distance <= CELL_SIZE_METERS) return listOf(end)
+        val steps = kotlin.math.ceil(distance / CELL_SIZE_METERS).toInt()
+        return (1..steps).map { step ->
+            val t = step.toDouble() / steps.toDouble()
+            listOf(
+                start[0] + (end[0] - start[0]) * t,
+                start[1] + (end[1] - start[1]) * t
+            )
+        }
+    }
+
+    private fun toCell(lat: Double, lng: Double): Pair<Int, Int> {
+        val latMeters = lat * 111_320.0
+        val lngMeters = lng * 111_320.0 * kotlin.math.cos(Math.toRadians(lat))
+        return Pair(
+            kotlin.math.floor(lngMeters / CELL_SIZE_METERS).toInt(),
+            kotlin.math.floor(latMeters / CELL_SIZE_METERS).toInt()
+        )
     }
 
     private fun isStationaryCluster(points: List<List<Double>>): Boolean {
@@ -730,6 +854,7 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_ROOM_MIGRATED = "room_migrated"
         private const val MIN_MOVEMENT_FOR_TRACK_METERS = 20.0
         private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 45.0
+        private const val CELL_SIZE_METERS = 20.0
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000
