@@ -18,7 +18,9 @@ import java.util.Locale
 class NativeTrackStore(private val context: Context) {
 
     private val archiveFile = File(context.filesDir, "fog_apk_archive.json")
+    private val archiveBackupFile = File(context.filesDir, "fog_apk_archive.backup.json")
     private val draftFile = File(context.filesDir, "fog_apk_draft.json")
+    private val draftBackupFile = File(context.filesDir, "fog_apk_draft.backup.json")
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     fun appendDraftPoint(lng: Double, lat: Double) {
@@ -63,23 +65,15 @@ class NativeTrackStore(private val context: Context) {
     }
 
     fun readArchiveTracks(): List<TrackRecord> {
-        if (!archiveFile.exists()) return emptyList()
-        return runCatching {
-            val root = JSONObject(archiveFile.readText())
-            val tracks = root.getJSONObject("sourceOfTruth").getJSONArray("tracks")
-            (0 until tracks.length()).map { index -> trackFromJson(tracks.getJSONObject(index)) }
-        }.getOrElse { emptyList() }
+        return readTracksFromFile(archiveFile)
+            ?: readTracksFromFile(archiveBackupFile)
+            ?: emptyList()
     }
 
     fun readDraftPoints(): List<List<Double>> {
-        if (!draftFile.exists()) return emptyList()
-        return runCatching {
-            val array = JSONArray(draftFile.readText())
-            (0 until array.length()).map { idx ->
-                val point = array.getJSONArray(idx)
-                listOf(point.getDouble(0), point.getDouble(1))
-            }
-        }.getOrElse { emptyList() }
+        return readDraftPointsFromFile(draftFile)
+            ?: readDraftPointsFromFile(draftBackupFile)
+            ?: emptyList()
     }
 
     fun clearDraft() {
@@ -279,7 +273,7 @@ class NativeTrackStore(private val context: Context) {
                 })
             })
         }
-        archiveFile.writeText(root.toString())
+        writeTextAtomically(archiveFile, archiveBackupFile, root.toString())
     }
 
     private fun writeDraftPoints(points: List<List<Double>>) {
@@ -291,7 +285,43 @@ class NativeTrackStore(private val context: Context) {
                 })
             }
         }
-        draftFile.writeText(array.toString())
+        writeTextAtomically(draftFile, draftBackupFile, array.toString())
+    }
+
+    private fun readTracksFromFile(file: File): List<TrackRecord>? {
+        if (!file.exists()) return null
+        return runCatching {
+            val root = JSONObject(file.readText())
+            val tracks = root.getJSONObject("sourceOfTruth").getJSONArray("tracks")
+            (0 until tracks.length()).map { index -> trackFromJson(tracks.getJSONObject(index)) }
+        }.getOrNull()
+    }
+
+    private fun readDraftPointsFromFile(file: File): List<List<Double>>? {
+        if (!file.exists()) return null
+        return runCatching {
+            val array = JSONArray(file.readText())
+            (0 until array.length()).map { idx ->
+                val point = array.getJSONArray(idx)
+                listOf(point.getDouble(0), point.getDouble(1))
+            }
+        }.getOrNull()
+    }
+
+    private fun writeTextAtomically(target: File, backup: File, content: String) {
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        temp.writeText(content)
+        if (target.exists()) {
+            runCatching {
+                target.copyTo(backup, overwrite = true)
+            }
+        }
+        if (target.exists() && !target.delete()) {
+            throw IllegalStateException("无法覆盖文件: ${target.name}")
+        }
+        if (!temp.renameTo(target)) {
+            throw IllegalStateException("无法提交文件写入: ${target.name}")
+        }
     }
 
     private fun updateStatus(

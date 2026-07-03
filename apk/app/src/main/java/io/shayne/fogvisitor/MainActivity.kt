@@ -247,7 +247,7 @@ class MainActivity : AppCompatActivity() {
                       setTimeout(() => {
                         try {
                           const nativeSyncStartedAt = performance.now();
-                          AndroidBridge.importNativeArchiveJson(JSON.stringify(syncPayload), false);
+                          AndroidBridge.importNativeArchiveJson(JSON.stringify(syncPayload), true);
                           if (window.reportDebugEvent) {
                             window.reportDebugEvent('web_save_hook_native_sync_done', {
                               durationMs: Math.round(performance.now() - nativeSyncStartedAt),
@@ -333,6 +333,7 @@ class MainActivity : AppCompatActivity() {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     try {
+                      const beforeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
                       if (window.reportDebugEvent) {
                         window.reportDebugEvent('web_native_stop_track_intercepted', {});
                       }
@@ -340,15 +341,21 @@ class MainActivity : AppCompatActivity() {
                       setNativeTrackingUi(false);
                       setTimeout(async () => {
                         try {
-                          await syncNativeArchiveToLocal();
-                          if (window.__fogApplyNormalizedArchiveToPage) {
+                          const replaced = await syncNativeArchiveToLocal();
+                          const afterSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                          const nativeAdvanced =
+                            afterSummary.trackCount > beforeSummary.trackCount ||
+                            afterSummary.latestTimestamp > beforeSummary.latestTimestamp;
+                          if ((replaced || nativeAdvanced) && window.__fogApplyNormalizedArchiveToPage) {
                             const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
                             const normalized = window.__fogNormalizeNativeArchiveForWeb
                               ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
                               : rawArchive;
                             await window.__fogApplyNormalizedArchiveToPage(normalized);
-                          } else {
+                          } else if (!window.__fogApplyNormalizedArchiveToPage) {
                             location.reload();
+                          } else if (window.AndroidBridge && window.AndroidBridge.showNativeToast) {
+                            window.AndroidBridge.showNativeToast('本次未生成新的追踪轨迹');
                           }
                         } catch (reloadErr) {
                           console.warn('Failed to reload native archive after stop', reloadErr);

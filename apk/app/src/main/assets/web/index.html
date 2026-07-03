@@ -170,7 +170,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.51 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.52 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -942,6 +942,8 @@ button:active { transform: scale(0.92); }
     window.__fogApplyNormalizedArchiveToPage = async function(normalized) {
         appData = normalized;
         await localforage.setItem(STORAGE_KEY, normalized);
+        await localforage.setItem(SNAPSHOT_KEY, normalized);
+        await DataManager.clearDiagnostic();
         updateStatsUI();
         buildTimeline();
         if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
@@ -970,7 +972,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.51',
+            appVersion: 'v0.1.52',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

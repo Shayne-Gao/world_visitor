@@ -70,10 +70,11 @@ class TrackingForegroundService : Service() {
 
     private fun stopSelfSafely() {
         isExplicitStop = true
-        stopLocationUpdates()
-        trackStore.finalizeDraftToTrack()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopLocationUpdates {
+            trackStore.finalizeDraftToTrack()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {
@@ -110,7 +111,12 @@ class TrackingForegroundService : Service() {
             )
         )
         //#endregion
-        if (!hasLocationPermission()) return
+        if (!hasLocationPermission()) {
+            trackStore.markTrackingRunning(false, shouldTrack = false)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         if (locationCallback != null) return
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
@@ -147,11 +153,18 @@ class TrackingForegroundService : Service() {
         )
     }
 
-    private fun stopLocationUpdates() {
-        val callback = locationCallback ?: return
-        fusedLocationClient.removeLocationUpdates(callback)
-        locationCallback = null
-        trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
+    private fun stopLocationUpdates(onStopped: (() -> Unit)? = null) {
+        val callback = locationCallback
+        if (callback == null) {
+            trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
+            onStopped?.invoke()
+            return
+        }
+        fusedLocationClient.removeLocationUpdates(callback).addOnCompleteListener {
+            locationCallback = null
+            trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
+            onStopped?.invoke()
+        }
     }
 
     private fun hasLocationPermission(): Boolean {
