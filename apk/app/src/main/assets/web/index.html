@@ -993,7 +993,14 @@ button:active { transform: scale(0.92); }
 
     function updateMainBtnUI(stateOverride) {
         window.__fogEditModeActive = isEditMode;
-        if (stateOverride === 'locating') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...'; return; }
+        if (stateOverride === 'locating') {
+            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 定位中...';
+            if (window.__fogNativeTrackMode) {
+                mainToggleContainer.classList.add('is-active', 'is-tracking');
+                document.getElementById('trackingStatusPanel').classList.remove('hidden');
+            }
+            return;
+        }
         if (stateOverride === 'processing') { document.getElementById('endAutoTrackBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 暂停中...'; document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 结算轨迹中...'; return; }
         if (stateOverride === 'error') { document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> 定位失败'; setTimeout(updateMainBtnUI, 2000); return; }
         if (stateOverride === 'recording') { 
@@ -1398,8 +1405,19 @@ button:active { transform: scale(0.92); }
                 if (recordCurrentPoint) {
                     await processTrackAndSave([[lng, lat]], 'manual_locate');
                 }
-                if (!window.__fogNativeTrackMode) updateMainBtnUI();
-            }, (err) => { if (!silent) { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); } updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                if (window.__fogNativeTrackMode) updateMainBtnUI('recording');
+                else updateMainBtnUI();
+            }, (err) => {
+                if (!silent) {
+                    let msg = "定位失败\n";
+                    if(err.code===1) msg+="权限被拒绝";
+                    else if(err.code===2) msg+="无位置信息";
+                    else if(err.code===3) msg+="请求超时";
+                    alert(msg + "\n" + err.message);
+                }
+                if (window.__fogNativeTrackMode) updateMainBtnUI('recording');
+                else updateMainBtnUI('error');
+            }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
     document.getElementById('locateBtn').onclick = () => locateMe({ recordCurrentPoint: true }); 
