@@ -176,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.59 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.60 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -626,14 +626,17 @@ button:active { transform: scale(0.92); }
         },
         async loadPrimary() {
             try {
-                const localPrimary = await localforage.getItem(STORAGE_KEY);
-                if (localPrimary && (isValidAppData(localPrimary) || localPrimary.fog)) return localPrimary;
                 if (window.AndroidBridge && location.protocol === 'file:') {
                     const raw = AndroidBridge.exportNativeArchiveJson();
-                    if (raw) return window.__fogNormalizeNativeArchiveForWeb
-                        ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
-                        : JSON.parse(raw);
+                    if (raw) {
+                        const nativePrimary = window.__fogNormalizeNativeArchiveForWeb
+                            ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
+                            : JSON.parse(raw);
+                        if (nativePrimary && (isValidAppData(nativePrimary) || nativePrimary.fog)) return nativePrimary;
+                    }
                 }
+                const localPrimary = await localforage.getItem(STORAGE_KEY);
+                if (localPrimary && (isValidAppData(localPrimary) || localPrimary.fog)) return localPrimary;
                 return null;
             } catch (e) { return null; }
         },
@@ -1027,7 +1030,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.59',
+            appVersion: 'v0.1.60',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

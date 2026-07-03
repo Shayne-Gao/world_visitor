@@ -58,6 +58,11 @@ class JsBridge(
     fun getNativeArchiveTracks(): String = trackStore.getArchiveTracksJson()
 
     @JavascriptInterface
+    fun clearNativeArchive() {
+        trackStore.clearArchive()
+    }
+
+    @JavascriptInterface
     fun getNativeRecoveryStatus(): String = trackStore.getRecoveryStatusJson()
 
     @JavascriptInterface

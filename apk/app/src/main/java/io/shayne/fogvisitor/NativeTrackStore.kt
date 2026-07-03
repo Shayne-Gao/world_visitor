@@ -4,24 +4,33 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
-import android.provider.OpenableColumns
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import io.shayne.fogvisitor.storage.DraftPointEntity
+import io.shayne.fogvisitor.storage.FogVisitorDatabase
+import io.shayne.fogvisitor.storage.TrackDao
+import io.shayne.fogvisitor.storage.TrackSegmentEntity
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.text.SimpleDateFormat
-import java.util.zip.GZIPInputStream
 import java.util.Date
 import java.util.Locale
+import java.util.zip.GZIPInputStream
 
 class NativeTrackStore(private val context: Context) {
 
-    private val archiveFile = File(context.filesDir, "fog_apk_archive.json")
-    private val archiveBackupFile = File(context.filesDir, "fog_apk_archive.backup.json")
-    private val draftFile = File(context.filesDir, "fog_apk_draft.json")
-    private val draftBackupFile = File(context.filesDir, "fog_apk_draft.backup.json")
+    private val legacyArchiveFile = File(context.filesDir, "fog_apk_archive.json")
+    private val legacyArchiveBackupFile = File(context.filesDir, "fog_apk_archive.backup.json")
+    private val legacyDraftFile = File(context.filesDir, "fog_apk_draft.json")
+    private val legacyDraftBackupFile = File(context.filesDir, "fog_apk_draft.backup.json")
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    private val dao: TrackDao = FogVisitorDatabase.getInstance(context).trackDao()
+
+    init {
+        migrateLegacyJsonIfNeeded()
+    }
 
     fun appendDraftPoint(lng: Double, lat: Double) {
         val points = readDraftPoints().toMutableList()
@@ -52,9 +61,7 @@ class NativeTrackStore(private val context: Context) {
             bbox = PolylineCodec.calculateBbox(points)
         )
 
-        val archive = readArchiveTracks().toMutableList()
-        archive.add(track)
-        writeArchiveTracks(archive)
+        dao.upsertTrack(track.toEntity())
 
         val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
         writeDraftPoints(seed)
@@ -83,9 +90,7 @@ class NativeTrackStore(private val context: Context) {
             bbox = PolylineCodec.calculateBbox(points)
         )
 
-        val archive = readArchiveTracks().toMutableList()
-        archive.add(track)
-        writeArchiveTracks(archive)
+        dao.upsertTrack(track.toEntity())
         clearDraft()
         updateStatus(
             isTracking = false,
@@ -97,25 +102,20 @@ class NativeTrackStore(private val context: Context) {
     }
 
     fun readArchiveTracks(): List<TrackRecord> {
-        return readTracksFromFile(archiveFile)
-            ?: readTracksFromFile(archiveBackupFile)
-            ?: emptyList()
+        return dao.getAllTracks().map { it.toModel() }
     }
 
     fun readDraftPoints(): List<List<Double>> {
-        return readDraftPointsFromFile(draftFile)
-            ?: readDraftPointsFromFile(draftBackupFile)
-            ?: emptyList()
+        return dao.getDraftPoints().map { listOf(it.lng, it.lat) }
     }
 
     fun clearDraft() {
-        if (draftFile.exists()) draftFile.delete()
+        dao.clearDraftPoints()
     }
 
     fun exportArchiveJson(): String {
-        if (archiveFile.exists()) return archiveFile.readText()
-        writeArchiveTracks(emptyList())
-        return archiveFile.readText()
+        val tracks = readArchiveTracks()
+        return buildArchiveJson(tracks).toString()
     }
 
     fun exportArchiveToDownloads(): String {
@@ -200,7 +200,7 @@ class NativeTrackStore(private val context: Context) {
             importedTracks.sortedBy { it.timestamp }
         }
 
-        writeArchiveTracks(finalTracks)
+        dao.replaceAllTracks(finalTracks.map { it.toEntity() })
         return JSONObject().apply {
             put("mode", if (merge) "merge" else "replace")
             put("trackCount", finalTracks.size)
@@ -225,22 +225,21 @@ class NativeTrackStore(private val context: Context) {
             put("shouldTrack", prefs.getBoolean(KEY_SHOULD_TRACK, false))
             put("draftPointCount", prefs.getInt(KEY_DRAFT_COUNT, 0))
             put("lastPointAt", prefs.getLong(KEY_LAST_POINT_AT, 0L))
-            put("trackCount", readArchiveTracks().size)
-            put("archivePath", archiveFile.absolutePath)
-            put("draftPath", draftFile.absolutePath)
+            put("trackCount", dao.getTrackCount())
+            put("archivePath", "room://fog_visitor_truth.db/track_segments")
+            put("draftPath", "room://fog_visitor_truth.db/draft_points")
             put("hasRecoverableDraft", hasRecoverableDraft())
         }
         return json.toString()
     }
 
     fun getArchiveSummaryJson(): String {
-        val tracks = readArchiveTracks()
-        val latestTimestamp = tracks.maxOfOrNull { it.timestamp } ?: 0L
+        val latestTimestamp = dao.getLatestTimestamp() ?: 0L
         return JSONObject().apply {
-            put("trackCount", tracks.size)
+            put("trackCount", dao.getTrackCount())
             put("latestTimestamp", latestTimestamp)
-            put("archiveExists", archiveFile.exists())
-            put("draftExists", draftFile.exists())
+            put("archiveExists", dao.getTrackCount() > 0)
+            put("draftExists", readDraftPoints().isNotEmpty())
             put("hasRecoverableDraft", hasRecoverableDraft())
             put("shouldTrack", shouldTrack())
         }.toString()
@@ -277,9 +276,20 @@ class NativeTrackStore(private val context: Context) {
 
     fun recoverDraftAsTrack(): TrackRecord? = finalizeDraftToTrack(source = "android_recovered_track")
 
+    fun clearArchive() {
+        dao.clearTracks()
+        dao.clearDraftPoints()
+        updateStatus(
+            isTracking = false,
+            shouldTrack = false,
+            draftPointCount = 0,
+            lastPointAt = 0L
+        )
+    }
+
     fun latestTrackTimestamp(): Long = readArchiveTracks().maxOfOrNull { it.timestamp } ?: 0L
 
-    fun hasArchive(): Boolean = archiveFile.exists()
+    fun hasArchive(): Boolean = dao.getTrackCount() > 0
 
     fun getRecoveryStatusJson(): String {
         return JSONObject().apply {
@@ -291,69 +301,17 @@ class NativeTrackStore(private val context: Context) {
     }
 
     private fun writeArchiveTracks(tracks: List<TrackRecord>) {
-        val root = JSONObject().apply {
-            put("version", "2.0.0")
-            put("metadata", JSONObject().apply {
-                put("totalAreaKm2", 0.0)
-                put("createdAt", prefs.getLong(KEY_CREATED_AT, System.currentTimeMillis()).also {
-                    prefs.edit().putLong(KEY_CREATED_AT, it).apply()
-                })
-            })
-            put("sourceOfTruth", JSONObject().apply {
-                put("tracks", JSONArray().apply {
-                    tracks.forEach { put(trackToJson(it)) }
-                })
-            })
-        }
-        writeTextAtomically(archiveFile, archiveBackupFile, root.toString())
+        dao.replaceAllTracks(tracks.map { it.toEntity() })
     }
 
     private fun writeDraftPoints(points: List<List<Double>>) {
-        val array = JSONArray().apply {
-            points.forEach { point ->
-                put(JSONArray().apply {
-                    put(point[0])
-                    put(point[1])
-                })
-            }
-        }
-        writeTextAtomically(draftFile, draftBackupFile, array.toString())
-    }
-
-    private fun readTracksFromFile(file: File): List<TrackRecord>? {
-        if (!file.exists()) return null
-        return runCatching {
-            val root = JSONObject(file.readText())
-            val tracks = root.getJSONObject("sourceOfTruth").getJSONArray("tracks")
-            (0 until tracks.length()).map { index -> trackFromJson(tracks.getJSONObject(index)) }
-        }.getOrNull()
-    }
-
-    private fun readDraftPointsFromFile(file: File): List<List<Double>>? {
-        if (!file.exists()) return null
-        return runCatching {
-            val array = JSONArray(file.readText())
-            (0 until array.length()).map { idx ->
-                val point = array.getJSONArray(idx)
-                listOf(point.getDouble(0), point.getDouble(1))
-            }
-        }.getOrNull()
-    }
-
-    private fun writeTextAtomically(target: File, backup: File, content: String) {
-        val temp = File(target.parentFile, "${target.name}.tmp")
-        temp.writeText(content)
-        if (target.exists()) {
-            runCatching {
-                target.copyTo(backup, overwrite = true)
-            }
-        }
-        if (target.exists() && !target.delete()) {
-            throw IllegalStateException("无法覆盖文件: ${target.name}")
-        }
-        if (!temp.renameTo(target)) {
-            throw IllegalStateException("无法提交文件写入: ${target.name}")
-        }
+        dao.replaceDraftPoints(points.mapIndexed { index, point ->
+            DraftPointEntity(
+                sequence = index,
+                lng = point[0],
+                lat = point[1]
+            )
+        })
     }
 
     private fun updateStatus(
@@ -403,6 +361,92 @@ class NativeTrackStore(private val context: Context) {
         )
     }
 
+    private fun TrackRecord.toEntity(): TrackSegmentEntity {
+        return TrackSegmentEntity(
+            id = id,
+            timestamp = timestamp,
+            source = source,
+            brushRadiusKm = brushRadiusKm,
+            encodedPath = encodedPath,
+            bboxJson = bbox?.let { JSONArray(it).toString() }
+        )
+    }
+
+    private fun TrackSegmentEntity.toModel(): TrackRecord {
+        val bbox = bboxJson?.let { raw ->
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getDouble(it) }
+        }
+        return TrackRecord(
+            id = id,
+            timestamp = timestamp,
+            source = source,
+            brushRadiusKm = brushRadiusKm,
+            encodedPath = encodedPath,
+            bbox = bbox
+        )
+    }
+
+    private fun buildArchiveJson(tracks: List<TrackRecord>): JSONObject {
+        return JSONObject().apply {
+            put("version", "2.0.0")
+            put("metadata", JSONObject().apply {
+                put("totalAreaKm2", 0.0)
+                put("createdAt", prefs.getLong(KEY_CREATED_AT, System.currentTimeMillis()).also {
+                    prefs.edit().putLong(KEY_CREATED_AT, it).apply()
+                })
+            })
+            put("sourceOfTruth", JSONObject().apply {
+                put("tracks", JSONArray().apply {
+                    tracks.forEach { put(trackToJson(it)) }
+                })
+            })
+        }
+    }
+
+    private fun migrateLegacyJsonIfNeeded() {
+        if (prefs.getBoolean(KEY_ROOM_MIGRATED, false)) return
+        if (dao.getTrackCount() > 0 || dao.getDraftPoints().isNotEmpty()) {
+            prefs.edit().putBoolean(KEY_ROOM_MIGRATED, true).apply()
+            return
+        }
+
+        val legacyTracks = readTracksFromFile(legacyArchiveFile)
+            ?: readTracksFromFile(legacyArchiveBackupFile)
+            ?: emptyList()
+        val legacyDraft = readDraftPointsFromFile(legacyDraftFile)
+            ?: readDraftPointsFromFile(legacyDraftBackupFile)
+            ?: emptyList()
+
+        if (legacyTracks.isNotEmpty()) {
+            dao.replaceAllTracks(legacyTracks.map { it.toEntity() })
+        }
+        if (legacyDraft.isNotEmpty()) {
+            writeDraftPoints(legacyDraft)
+        }
+        prefs.edit().putBoolean(KEY_ROOM_MIGRATED, true).apply()
+    }
+
+    private fun readTracksFromFile(file: File): List<TrackRecord>? {
+        if (!file.exists()) return null
+        return runCatching {
+            val root = JSONObject(file.readText())
+            val tracks = root.getJSONObject("sourceOfTruth").getJSONArray("tracks")
+            (0 until tracks.length()).map { index -> trackFromJson(tracks.getJSONObject(index)) }
+        }.getOrNull()
+    }
+
+    private fun readDraftPointsFromFile(file: File): List<List<Double>>? {
+        if (!file.exists()) return null
+        return runCatching {
+            val array = JSONArray(file.readText())
+            (0 until array.length()).map { idx ->
+                val point = array.getJSONArray(idx)
+                listOf(point.getDouble(0), point.getDouble(1))
+            }
+        }.getOrNull()
+    }
+
     companion object {
         private const val PREF_NAME = "fog_visitor_native_tracking"
         private const val KEY_IS_TRACKING = "is_tracking"
@@ -410,5 +454,6 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_DRAFT_COUNT = "draft_count"
         private const val KEY_LAST_POINT_AT = "last_point_at"
         private const val KEY_CREATED_AT = "archive_created_at"
+        private const val KEY_ROOM_MIGRATED = "room_migrated"
     }
 }

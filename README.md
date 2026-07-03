@@ -4,6 +4,16 @@
 
 ---
 
+## [v0.1.60] - 2026-04-24
+### 🗃️ Native Single Truth Phase 1 (原生单一真相第一阶段)
+* **引入 Room 作为 App 唯一正式存档**：新增 `fog_visitor_truth.db`，用原生数据库承载轨迹段与当前小段点，不再把底层 JSON 文件当唯一主档。
+* **NativeTrackStore 改为数据库后端**：后台记录、导入导出、摘要查询、draft/segment 管理统一收口到 Room；JSON 只保留为导入导出格式与桥接快照格式。
+* **WebView 启动改为 native-first**：APK 页面启动时优先读取原生真相，再回退到本地缓存，降低 Web 主档与原生主档分叉的概率。
+* **重置世界切回原生唯一链路**：重置按钮现在先清空原生真相，再更新页面视图，不再只清网页本地缓存。
+* **保留旧 JSON 到 Room 的一次性迁移**：若设备上已有旧版原生 archive/draft 文件，首次启动会导入到 Room，避免已有 App 记录直接丢失。
+
+---
+
 ## [v0.1.59] - 2026-04-24
 ### 🔄 Live Record Visibility Fixes (记录可见性与残留逻辑修复)
 * **修复息屏残留 JS 导致的初始化报错**：移除 `slideThumb/slideUnlockContainer` 残留绑定对后续按钮事件链的破坏，恢复“开始标记 / 重置世界”等后续事件注册。

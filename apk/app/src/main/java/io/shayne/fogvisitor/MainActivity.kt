@@ -450,7 +450,8 @@ class MainActivity : AppCompatActivity() {
                   const exportBtn = document.getElementById('exportBtn');
                   const importBtn = document.getElementById('importBtn');
                   const mergeBtn = document.getElementById('mergeBtn');
-                  if (!exportBtn || !importBtn || !mergeBtn || window.__fogNativeArchiveUiBound) return false;
+                  const resetBtn = document.getElementById('resetFog');
+                  if (!exportBtn || !importBtn || !mergeBtn || !resetBtn || window.__fogNativeArchiveUiBound) return false;
 
                   exportBtn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -472,6 +473,28 @@ class MainActivity : AppCompatActivity() {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     AndroidBridge.pickNativeArchiveForMerge();
+                  }, true);
+
+                  resetBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    if (!confirm('确定清除所有记录吗？此操作无法恢复！')) return;
+                    AndroidBridge.clearNativeArchive();
+                    const emptyState = {
+                      version: '2.0.0',
+                      metadata: { totalAreaKm2: 0, createdAt: Date.now() },
+                      sourceOfTruth: { tracks: [] },
+                      renderCache: {
+                        globalFog: turf.polygon(worldCoords),
+                        globalExplored: null,
+                        dailyExplored: {},
+                        regionsCache: {}
+                      }
+                    };
+                    if (window.__fogApplyNormalizedArchiveToPage) {
+                      await window.__fogApplyNormalizedArchiveToPage(emptyState);
+                    }
+                    document.getElementById('subMenu')?.classList.add('hidden');
                   }, true);
 
                   window.__fogNativeArchiveUiBound = true;
