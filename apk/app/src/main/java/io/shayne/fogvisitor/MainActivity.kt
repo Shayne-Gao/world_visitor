@@ -277,12 +277,22 @@ class MainActivity : AppCompatActivity() {
                   const syncNativeArchiveIfAdvanced = async () => {
                     try {
                       const summary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                      const currentTrackCount = Array.isArray(window.appData?.sourceOfTruth?.tracks)
+                        ? window.appData.sourceOfTruth.tracks.length
+                        : 0;
+                      const currentLatestTimestamp = Math.max(
+                        0,
+                        ...(window.appData?.sourceOfTruth?.tracks || []).map(track => track?.timestamp || 0)
+                      );
                       const previous = window.__fogLastNativeArchiveSummary || { trackCount: 0, latestTimestamp: 0 };
                       const advanced =
                         summary.trackCount > previous.trackCount ||
                         summary.latestTimestamp > previous.latestTimestamp;
                       window.__fogLastNativeArchiveSummary = summary;
-                      if (!advanced || window.isEditMode) return;
+                      const newerThanPage =
+                        summary.trackCount > currentTrackCount ||
+                        summary.latestTimestamp > currentLatestTimestamp;
+                      if (!advanced || !newerThanPage || window.__fogEditModeActive) return;
                       const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
                       const normalized = window.__fogNormalizeNativeArchiveForWeb
                         ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
@@ -395,6 +405,9 @@ class MainActivity : AppCompatActivity() {
                   }
 
                   refreshNativeTrackingStatus();
+                  try {
+                    window.__fogLastNativeArchiveSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                  } catch (e) {}
                   if (!window.__fogNativeTrackingStatusTimer) {
                     window.__fogNativeTrackingStatusTimer = setInterval(() => {
                       refreshNativeTrackingStatus();

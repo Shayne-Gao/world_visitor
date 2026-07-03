@@ -4,6 +4,15 @@
 
 ---
 
+## [v0.1.62] - 2026-04-24
+### 🚀 Startup & Save Path Fixes (首屏直读与缓存阻塞修复)
+* **修复 APK 首屏读成 empty**：页面在原生 normalizer 尚未注入前，改为使用内置 `normalizeNativeArchiveForWebLocal()` 直接把原生 truth 转成可渲染结构，避免先空白再等晚同步。
+* **APK 环境跳过重型本地缓存写入**：`saveData()` 在 `file:// + AndroidBridge` 场景下不再整包写 `localforage`，降低手动标记后 `web_save_data_storage_done` 出现秒级阻塞的风险。
+* **增量同步改为更保守的首轮策略**：启动时先记住当前 native summary，不把第一次轮询当成新增；同时要求 native 数据确实比当前页面更新，且不在编辑态时才允许回刷页面。
+* **编辑态保护更明确**：通过显式的 `window.__fogEditModeActive` 防止手动标记过程中被后台增量同步打断。 
+
+---
+
 ## [v0.1.61] - 2026-04-24
 ### ✅ Native Single Truth Phase 2 (原生单一真相第二阶段)
 * **页面不再通过全局 save hook 双写真相**：`DataManager.saveData()` 只负责缓存写入，不再默认把整份 `appData` 再同步回原生主档。
