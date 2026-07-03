@@ -114,6 +114,19 @@ class NativeTrackStore(private val context: Context) {
         return uri.toString()
     }
 
+    fun buildExportFileName(): String {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        return "fog_apk_export_$timestamp.json"
+    }
+
+    fun exportArchiveToUri(uri: Uri): String {
+        val json = exportArchiveJson()
+        context.contentResolver.openOutputStream(uri)?.use { stream ->
+            stream.write(json.toByteArray())
+        } ?: throw IllegalStateException("无法写入导出文件")
+        return uri.toString()
+    }
+
     fun importArchiveJson(rawJson: String, merge: Boolean): String {
         val parsed = JSONObject(rawJson)
         return importParsedArchive(parsed, merge)

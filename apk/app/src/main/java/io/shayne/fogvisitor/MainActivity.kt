@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingImportMergeMode = false
+    private var pendingExportFileName = "fog_apk_export.json"
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -45,6 +46,13 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
                 handleImportedArchiveUri(uri, pendingImportMergeMode)
+            }
+        }
+
+    private val exportArchiveLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+            if (uri != null) {
+                handleExportArchiveUri(uri)
             }
         }
 
@@ -133,6 +141,7 @@ class MainActivity : AppCompatActivity() {
                 this,
                 onStartTracking = { startNativeTrackingService() },
                 onStopTracking = { stopNativeTrackingService() },
+                onPickExport = { launchExportPicker() },
                 onPickImportReplace = { launchImportPicker(false) },
                 onPickImportMerge = { launchImportPicker(true) }
             ),
@@ -382,8 +391,7 @@ class MainActivity : AppCompatActivity() {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     try {
-                      const result = AndroidBridge.exportNativeArchiveToDownloads();
-                      alert('导出成功，已写入下载目录：\\n' + result);
+                      AndroidBridge.pickNativeArchiveExport();
                     } catch (err) {
                       alert('导出失败：' + err);
                     }
@@ -451,6 +459,37 @@ class MainActivity : AppCompatActivity() {
         )
         //#endregion
         importArchiveLauncher.launch(arrayOf("*/*"))
+    }
+
+    private fun launchExportPicker() {
+        pendingExportFileName = nativeTrackStore.buildExportFileName()
+        reportDebugEvent(
+            "native_launch_export_picker",
+            mapOf("fileName" to pendingExportFileName)
+        )
+        exportArchiveLauncher.launch(pendingExportFileName)
+    }
+
+    private fun handleExportArchiveUri(uri: Uri) {
+        runCatching {
+            nativeTrackStore.exportArchiveToUri(uri)
+        }.onSuccess {
+            Toast.makeText(this, "导出成功", Toast.LENGTH_SHORT).show()
+            binding.webView.post {
+                binding.webView.evaluateJavascript(
+                    "AndroidBridge.showNativeToast('导出成功：${escapeJsString(pendingExportFileName)}');",
+                    null
+                )
+            }
+        }.onFailure { err ->
+            Toast.makeText(this, "导出失败：${err.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+            binding.webView.post {
+                binding.webView.evaluateJavascript(
+                    "alert('导出失败：${escapeJsString(err.message ?: "未知错误")}');",
+                    null
+                )
+            }
+        }
     }
 
     private fun handleImportedArchiveUri(uri: Uri, merge: Boolean) {

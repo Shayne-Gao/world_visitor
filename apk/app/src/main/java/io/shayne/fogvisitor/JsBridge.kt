@@ -8,6 +8,7 @@ class JsBridge(
     private val context: Context,
     private val onStartTracking: () -> Unit,
     private val onStopTracking: () -> Unit,
+    private val onPickExport: () -> Unit,
     private val onPickImportReplace: () -> Unit,
     private val onPickImportMerge: () -> Unit
 ) {
@@ -40,6 +41,11 @@ class JsBridge(
 
     @JavascriptInterface
     fun exportNativeArchiveToDownloads(): String = trackStore.exportArchiveToDownloads()
+
+    @JavascriptInterface
+    fun pickNativeArchiveExport() {
+        onPickExport.invoke()
+    }
 
     @JavascriptInterface
     fun importNativeArchiveJson(rawJson: String, merge: Boolean): String =
