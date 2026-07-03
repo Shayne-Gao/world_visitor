@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
             pendingGeoCallback?.invoke(pendingGeoOrigin, granted, false)
             pendingGeoOrigin = null
             pendingGeoCallback = null
+            if (granted) ensureAutoTrackingStarted()
         }
 
     private val importArchiveLauncher =
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
 
         requestRuntimePermissions()
         setupWebView()
+        ensureAutoTrackingStarted()
     }
 
     private fun requestRuntimePermissions() {
@@ -85,6 +87,12 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (needRequest) permissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun ensureAutoTrackingStarted() {
+        if (!hasForegroundLocationPermission()) return
+        if (nativeTrackStore.shouldTrack()) return
+        startNativeTrackingService()
     }
 
     private fun setupWebView() {

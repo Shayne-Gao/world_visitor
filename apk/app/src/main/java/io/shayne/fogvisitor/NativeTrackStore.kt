@@ -35,6 +35,38 @@ class NativeTrackStore(private val context: Context) {
         )
     }
 
+    fun checkpointDraftToTrackIfNeeded(
+        source: String = "android_background_track_segment",
+        brushRadiusKm: Double = 0.02,
+        minPointCount: Int = 12
+    ): TrackRecord? {
+        val points = readDraftPoints()
+        if (points.size < minPointCount) return null
+
+        val track = TrackRecord(
+            id = "trk_${System.currentTimeMillis()}_${(100..999).random()}",
+            timestamp = System.currentTimeMillis(),
+            source = source,
+            brushRadiusKm = brushRadiusKm,
+            encodedPath = PolylineCodec.encode(points),
+            bbox = PolylineCodec.calculateBbox(points)
+        )
+
+        val archive = readArchiveTracks().toMutableList()
+        archive.add(track)
+        writeArchiveTracks(archive)
+
+        val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
+        writeDraftPoints(seed)
+        updateStatus(
+            isTracking = true,
+            shouldTrack = true,
+            draftPointCount = seed.size,
+            lastPointAt = System.currentTimeMillis()
+        )
+        return track
+    }
+
     fun finalizeDraftToTrack(
         source: String = "android_background_track",
         brushRadiusKm: Double = 0.02

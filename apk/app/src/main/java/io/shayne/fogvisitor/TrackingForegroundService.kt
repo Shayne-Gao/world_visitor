@@ -142,6 +142,7 @@ class TrackingForegroundService : Service() {
                         lng = location.longitude,
                         lat = location.latitude
                     )
+                    trackStore.checkpointDraftToTrackIfNeeded()
                 }
             }
         }
