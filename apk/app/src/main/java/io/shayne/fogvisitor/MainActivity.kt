@@ -321,7 +321,7 @@ class MainActivity : AppCompatActivity() {
                       if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
                       if (modeText) {
                         modeText.textContent = status.isTracking
-                          ? ('正在记录，草稿 ' + (status.draftPointCount || 0) + ' 点')
+                          ? ('正在记录，当前小段 ' + (status.draftPointCount || 0) + ' 点')
                           : (status.shouldTrack ? '等待恢复记录' : '已暂停');
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);

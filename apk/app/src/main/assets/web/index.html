@@ -28,7 +28,7 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
-#trackingStatusPanel { position: absolute; top: 46px; left: 15px; z-index: 1005; background: rgba(20,20,25,0.85); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 220px; }
+#trackingStatusPanel { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.88); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 240px; }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
@@ -41,7 +41,7 @@ button:active { transform: scale(0.92); }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
 #versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
-#rightSideTools { position: absolute; bottom: 90px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+#rightSideTools { position: absolute; bottom: 118px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
 .brush-group { background: rgba(255,255,255,0.95); border-radius: 25px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
@@ -58,8 +58,7 @@ button:active { transform: scale(0.92); }
 #timelineLabel { font-size: 12px; font-weight: bold; color: #444; }
 #timelineSlider { width: 100%; accent-color: #007bff; margin: 0; cursor: pointer; }
 
-#mainToggleContainer { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; border-radius: 30px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border: 1px solid #eaeaea; background: #fff; overflow: hidden; transition: all 0.3s ease; }
-#mainToggleContainer:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.2); transform: translateX(-50%) translateY(-2px); }
+#mainToggleContainer { display: none !important; }
 
 .split-btn { background: transparent; border: none; padding: 10px 0; font-size: 14px; font-weight: 600; color: #333; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .split-btn i { font-size: 15px; }
@@ -75,7 +74,7 @@ button:active { transform: scale(0.92); }
 #autoTrackBtn.status-btn:active { background: #e9f7ef; transform: none; }
 
 /* 30% 手动标记区域 */
-#manualDrawBtn { width: 140px; }
+#manualDrawBtn { display: none !important; width: 0; }
 #manualDrawBtn i { color: #007bff; }
 #manualDrawBtn:hover { background: #f8f9fa; }
 #manualDrawBtn:active { background: #e9ecef; }
@@ -90,20 +89,20 @@ button:active { transform: scale(0.92); }
 #endAutoTrackBtn i { color: white; }
 #endAutoTrackBtn:hover { background: #c82333; }
 
-#pocketModeBtn { width: 80px; background: #343a40; color: #f8f9fa; display: none; font-size: 13px; }
+#pocketModeBtn { display: none !important; width: 0; background: #343a40; color: #f8f9fa; font-size: 13px; }
 #pocketModeBtn i { color: #ffc107; margin-right: 2px; }
 #pocketModeBtn:hover { background: #23272b; }
 
 #mainToggleContainer.is-active #manualDrawBtn { display: none; }
 #mainToggleContainer.is-active #endActionBtn { display: flex; }
 #mainToggleContainer.is-active.is-tracking #endActionBtn { display: none; }
-#mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: flex; }
+#mainToggleContainer.is-active.is-tracking #pocketModeBtn { display: none; }
 #mainToggleContainer.is-active { border-color: #dc3545; }
 #mainToggleContainer.is-active.is-tracking { border-color: #343a40; }
 
 /* OLED 省电模式 (极致暗黑版 + 科幻电子表风) */
-#pocketModeOverlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: space-between; color: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-#pocketModeOverlay.active { opacity: 1; pointer-events: auto; }
+#pocketModeOverlay { display: none !important; }
+#pocketModeOverlay.active { display: none !important; }
 .pocket-header { width: 100%; padding: 50px 25px 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
 .pocket-time { font-size: 24px; color: #555; font-weight: normal; letter-spacing: 2px; }
 .pocket-battery { font-size: 20px; color: #555; letter-spacing: 1px; }
@@ -176,7 +175,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.56 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.57 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -223,6 +222,7 @@ button:active { transform: scale(0.92); }
 <div id="rightSideTools">
     <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
     <div id="baseTools">
+        <button id="manualDrawBtnFloating" class="pill-btn"><i class="fa-solid fa-pen"></i> 开始标记</button>
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
         
@@ -252,24 +252,6 @@ button:active { transform: scale(0.92); }
     
     <button id="endAutoTrackBtn" class="split-btn"><i class="fa-solid fa-stop"></i> 暂停记录</button>
     <button id="pocketModeBtn" class="split-btn" title="极客省电模式"><i class="fa-solid fa-bolt"></i>息屏</button>
-</div>
-
-<div id="pocketModeOverlay">
-    <div class="pocket-header">
-        <div class="gps-status"><div id="pocketGpsDot" class="gps-dot"></div> <span id="pocketGpsText">GPS 活跃</span></div>
-        <div id="pocketTime" class="pocket-time">00:00</div>
-        <div id="pocketBattery" class="pocket-battery">--%</div>
-    </div>
-    <div id="pocketDistance" class="pocket-distance">0.00 <span>km</span></div>
-    <div class="pocket-sub-stats">
-        <div class="sub-stat"><span id="pocketSpeed">0</span> <small>km/h</small></div>
-        <div class="sub-stat"><span id="pocketAlt">--</span> <small>m</small></div>
-    </div>
-    <canvas id="pocketCanvas"></canvas>
-    <div class="slide-to-unlock" id="slideUnlockContainer">
-        <div class="slide-text">&gt;&gt;&gt; 滑动解锁以退出 &gt;&gt;&gt;</div>
-        <div class="slide-thumb" id="slideThumb"><i class="fa-solid fa-lock"></i></div>
-    </div>
 </div>
 
 <script src="./vendor/leaflet/leaflet.js"></script>
@@ -815,13 +797,13 @@ button:active { transform: scale(0.92); }
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
             renderLayers(); // 恢复迷雾显示
         } else if (isEditMode) { 
-            document.getElementById('manualDrawBtn').innerHTML = '<i class="fa-solid fa-pen"></i> 标记中';
+            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i> 标记中';
             document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
             mainToggleContainer.classList.add('is-active'); 
             mainToggleContainer.classList.remove('is-tracking');
             if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
         } else {
-            document.getElementById('manualDrawBtn').innerHTML = '<i class="fa-solid fa-pen"></i> 开始标记';
+            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i> 开始标记';
         }
     }
 
@@ -1038,7 +1020,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.56',
+            appVersion: 'v0.1.57',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1065,7 +1047,16 @@ button:active { transform: scale(0.92); }
             }
         };
 
-        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+        const jsonText = JSON.stringify(payload, null, 2);
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(jsonText);
+                alert('诊断信息已复制到剪贴板，请直接粘贴给我。');
+                return;
+            }
+        } catch (e) {}
+
+        const blob = new Blob([jsonText], {type: 'application/json'});
         const a = document.createElement('a');
         const d = new Date();
         const p = n => n.toString().padStart(2, '0');
@@ -1073,7 +1064,7 @@ button:active { transform: scale(0.92); }
         a.download = `fog_diagnostic_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-        alert('已导出诊断信息，请把这个 JSON 文件发给我排查。');
+        alert('复制失败，已回退为下载诊断文件。');
     }
 
     (() => {
@@ -1422,7 +1413,7 @@ button:active { transform: scale(0.92); }
         livePath = []; updateMainBtnUI();
     };
 
-    document.getElementById('manualDrawBtn').onclick = () => {
+    const enterManualMarkMode = () => {
         reportDebugEvent('web_manual_draw_clicked', {
             isAutoRecording: String(isAutoRecording)
         });
@@ -1442,6 +1433,8 @@ button:active { transform: scale(0.92); }
         document.getElementById('subMenu').classList.add('hidden'); 
         renderLayers(); updateCursor();
     };
+    document.getElementById('manualDrawBtn').onclick = enterManualMarkMode;
+    document.getElementById('manualDrawBtnFloating').onclick = enterManualMarkMode;
 
     document.getElementById('endActionBtn').onclick = async () => {
         reportDebugEvent('web_end_action_clicked', {
