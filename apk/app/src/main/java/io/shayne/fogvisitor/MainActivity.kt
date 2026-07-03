@@ -6,9 +6,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -18,21 +20,19 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import io.shayne.fogvisitor.databinding.ActivityMainBinding
-import java.net.HttpURLConnection
-import java.net.URL
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var nativeTrackStore: NativeTrackStore
-    private val debugServerUrl = "http://127.0.0.1:7777/event"
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingImportMergeMode = false
     private var importPickerActive = false
     private var pendingExportFileName = "fog_apk_export.json"
 
-    private val permissionLauncher =
+    private val foregroundPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
@@ -41,7 +41,18 @@ class MainActivity : AppCompatActivity() {
             pendingGeoCallback?.invoke(pendingGeoOrigin, granted, false)
             pendingGeoOrigin = null
             pendingGeoCallback = null
-            if (granted) ensureAutoTrackingStarted()
+            if (granted) {
+                ensureAutoTrackingStarted()
+                requestBackgroundLocationIfNeeded()
+            }
+        }
+
+    private val backgroundPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            reportDebugEvent(
+                "native_background_location_permission_result",
+                mapOf("granted" to granted.toString())
+            )
         }
 
     private val importArchiveLauncher =
@@ -84,9 +95,6 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            permissions.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -94,12 +102,19 @@ class MainActivity : AppCompatActivity() {
         val needRequest = permissions.any {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (needRequest) permissionLauncher.launch(permissions.toTypedArray())
+        if (needRequest) {
+            foregroundPermissionLauncher.launch(permissions.toTypedArray())
+        } else {
+            requestBackgroundLocationIfNeeded()
+        }
     }
 
     private fun ensureAutoTrackingStarted() {
         if (!hasForegroundLocationPermission()) return
-        if (nativeTrackStore.shouldTrack()) return
+        val status = runCatching { JSONObject(nativeTrackStore.getStatusJson()) }.getOrNull()
+        val shouldTrack = status?.optBoolean("shouldTrack") ?: nativeTrackStore.shouldTrack()
+        val isTracking = status?.optBoolean("isTracking") ?: false
+        if (shouldTrack && isTracking) return
         startNativeTrackingService()
     }
 
@@ -110,16 +125,34 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = true
-        settings.allowContentAccess = true
+        settings.allowContentAccess = false
         settings.allowFileAccessFromFileURLs = true
         settings.allowUniversalAccessFromFileURLs = true
         settings.setGeolocationEnabled(true)
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val targetUrl = request?.url?.toString() ?: return false
+                if (isTrustedWebUrl(targetUrl) || targetUrl == "about:blank") {
+                    return false
+                }
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                }
+                return true
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                if (!isTrustedWebUrl(url)) {
+                    reportDebugEvent(
+                        "native_untrusted_page_blocked",
+                        mapOf("url" to (url ?: "null"))
+                    )
+                    return
+                }
                 //#region debug-point apk-ui-storage-regression-native-page-finished
                 reportDebugEvent(
                     "native_page_finished",
@@ -136,6 +169,10 @@ class MainActivity : AppCompatActivity() {
                 callback: GeolocationPermissions.Callback?
             ) {
                 if (origin == null || callback == null) return
+                if (!isTrustedWebOrigin(origin)) {
+                    callback.invoke(origin, false, false)
+                    return
+                }
 
                 if (hasForegroundLocationPermission()) {
                     callback.invoke(origin, true, false)
@@ -144,7 +181,7 @@ class MainActivity : AppCompatActivity() {
 
                 pendingGeoOrigin = origin
                 pendingGeoCallback = callback
-                permissionLauncher.launch(
+                foregroundPermissionLauncher.launch(
                     arrayOf(
                         Manifest.permission.ACCESS_FINE_LOCATION,
                         Manifest.permission.ACCESS_COARSE_LOCATION
@@ -345,7 +382,7 @@ class MainActivity : AppCompatActivity() {
                         window.updateCurrentLocationMarker(lastLat, lastLng);
                       }
                       if (trackingPanel) {
-                        if (status.isTracking || status.shouldTrack || window.isEditMode) trackingPanel.classList.remove('hidden');
+                        if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
                         else trackingPanel.classList.add('hidden');
                       }
                       if (window.reportDebugEvent) {
@@ -680,40 +717,29 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    //#region debug-point apk-ui-storage-regression-native-reporter
-    private fun reportDebugEvent(name: String, payload: Map<String, String>) {
-        Thread {
-            runCatching {
-                val body = buildString {
-                    append("{")
-                    append("\"session_id\":\"apk-ui-storage-regression\",")
-                    append("\"event\":\"").append(jsonEscape(name)).append("\",")
-                    append("\"payload\":{")
-                    append(payload.entries.joinToString(",") { entry ->
-                        "\"${jsonEscape(entry.key)}\":\"${jsonEscape(entry.value)}\""
-                    })
-                    append("}}")
-                }
-                val conn = (URL(debugServerUrl).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    connectTimeout = 1000
-                    readTimeout = 1000
-                }
-                conn.outputStream.use { it.write(body.toByteArray()) }
-                conn.inputStream.close()
-                conn.disconnect()
-            }
-        }.start()
+    private fun hasBackgroundLocationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun jsonEscape(value: String): String {
-        return value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "")
+    private fun requestBackgroundLocationIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (!hasForegroundLocationPermission() || hasBackgroundLocationPermission()) return
+        backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
     }
+
+    private fun isTrustedWebUrl(url: String?): Boolean {
+        return url == "file:///android_asset/web/index.html"
+    }
+
+    private fun isTrustedWebOrigin(origin: String): Boolean {
+        return origin.startsWith("file://")
+    }
+
+    //#region debug-point apk-ui-storage-regression-native-reporter
+    private fun reportDebugEvent(name: String, payload: Map<String, String>) {
+        Log.d("FogVisitor", "$name $payload")
+    }
+
     //#endregion
 }

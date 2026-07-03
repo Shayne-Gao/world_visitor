@@ -10,9 +10,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -21,8 +23,6 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import java.net.HttpURLConnection
-import java.net.URL
 
 class TrackingForegroundService : Service() {
 
@@ -52,6 +52,7 @@ class TrackingForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> startInForeground()
             ACTION_STOP -> stopSelfSafely()
+            null -> if (trackStore.shouldTrack()) startInForeground()
         }
         return START_STICKY
     }
@@ -128,32 +129,7 @@ class TrackingForegroundService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { location ->
-                    //#region debug-point apk-ui-storage-regression-service-location-result
-                    reportDebugEvent(
-                        "service_location_result",
-                        mapOf(
-                            "lat" to location.latitude.toString(),
-                            "lng" to location.longitude.toString(),
-                            "acc" to location.accuracy.toString()
-                        )
-                    )
-                    //#endregion
-                    trackStore.appendDraftPoint(
-                        lng = location.longitude,
-                        lat = location.latitude,
-                        accuracy = location.accuracy.toDouble()
-                    )
-                    val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 1)
-                    //#region debug-point auto-tracking-broken-service-point-persisted
-                    reportDebugEvent(
-                        "service_location_persisted",
-                        mapOf(
-                            "draftPointCount" to trackStore.readDraftPoints().size.toString(),
-                            "trackCheckpointed" to (track != null).toString(),
-                            "trackCount" to trackStore.readArchiveTracks().size.toString()
-                        )
-                    )
-                    //#endregion
+                    persistLocation(location)
                 }
             }
         }
@@ -163,6 +139,13 @@ class TrackingForegroundService : Service() {
             locationCallback as LocationCallback,
             Looper.getMainLooper()
         )
+
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            val maxAgeMs = 2 * 60 * 1000L
+            if (location != null && System.currentTimeMillis() - location.time <= maxAgeMs) {
+                persistLocation(location)
+            }
+        }
     }
 
     private fun stopLocationUpdates(onStopped: (() -> Unit)? = null) {
@@ -183,7 +166,11 @@ class TrackingForegroundService : Service() {
         return ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun createNotificationChannel() {
@@ -208,11 +195,45 @@ class TrackingForegroundService : Service() {
             restartIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 5_000L,
-            pendingIntent
+        val triggerAt = System.currentTimeMillis() + 5_000L
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            }
+        }.getOrElse {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        }
+    }
+
+    private fun persistLocation(location: Location) {
+        //#region debug-point apk-ui-storage-regression-service-location-result
+        reportDebugEvent(
+            "service_location_result",
+            mapOf(
+                "lat" to location.latitude.toString(),
+                "lng" to location.longitude.toString(),
+                "acc" to location.accuracy.toString()
+            )
         )
+        //#endregion
+        trackStore.appendDraftPoint(
+            lng = location.longitude,
+            lat = location.latitude,
+            accuracy = location.accuracy.toDouble()
+        )
+        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 1)
+        //#region debug-point auto-tracking-broken-service-point-persisted
+        reportDebugEvent(
+            "service_location_persisted",
+            mapOf(
+                "draftPointCount" to trackStore.readDraftPoints().size.toString(),
+                "trackCheckpointed" to (track != null).toString(),
+                "trackCount" to trackStore.readArchiveTracks().size.toString()
+            )
+        )
+        //#endregion
     }
 
     companion object {
@@ -225,38 +246,7 @@ class TrackingForegroundService : Service() {
 
     //#region debug-point apk-ui-storage-regression-service-reporter
     private fun reportDebugEvent(name: String, payload: Map<String, String>) {
-        Thread {
-            runCatching {
-                val body = buildString {
-                    append("{")
-                    append("\"session_id\":\"apk-ui-storage-regression\",")
-                    append("\"event\":\"").append(jsonEscape(name)).append("\",")
-                    append("\"payload\":{")
-                    append(payload.entries.joinToString(",") { entry ->
-                        "\"${jsonEscape(entry.key)}\":\"${jsonEscape(entry.value)}\""
-                    })
-                    append("}}")
-                }
-                val conn = (URL("http://127.0.0.1:7777/event").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    connectTimeout = 1000
-                    readTimeout = 1000
-                }
-                conn.outputStream.use { it.write(body.toByteArray()) }
-                conn.inputStream.close()
-                conn.disconnect()
-            }
-        }.start()
-    }
-
-    private fun jsonEscape(value: String): String {
-        return value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "")
+        Log.d("FogVisitor", "$name $payload")
     }
     //#endregion
 }

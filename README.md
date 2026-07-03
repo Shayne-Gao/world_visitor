@@ -1,6 +1,17 @@
-# Changelog - 世界迷雾 Web (Fog of World Web)
+# Changelog - 世界迷雾 (Fog Visitor)
+
+当前仓库同时保留旧 Web 原型与 Android APK 主线；自 `v0.1.41` 起，变更记录默认以 **Android APK + WebView 壳 + 原生单一真相** 为主。
 
 本项目旨在打造一个**完全本地优先 (Local-First)**、可终生记录并运行 30 年的个人地理空间数字资产系统。
+
+---
+
+## [v0.1.70] - 2026-04-24
+### 🧪 Baseline Self-Check Fixes (基础链路自查修复)
+* **统一前后台定位权限口径**：前台服务不再只接受 `ACCESS_FINE_LOCATION`，避免 Activity 认为可启动、Service 却因权限判定不一致而自停。
+* **修复“服务应跟踪但未实际运行”时的不自愈**：`ensureAutoTrackingStarted()` 现在会结合原生状态判断，不再只看 `shouldTrack` 就直接短路返回。
+* **修复最近实时位置被自己清空**：checkpoint/finalize 时保留最近经纬度，页面才能稳定消费原生实时位置流更新当前位置点。
+* **修复页面状态对象分叉**：`appData` 与 `window.appData` 保持同步，避免原生增量同步误把页面视为旧数据。
 
 ---
 

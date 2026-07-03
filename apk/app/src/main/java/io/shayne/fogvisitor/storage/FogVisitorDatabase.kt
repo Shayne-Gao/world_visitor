@@ -24,9 +24,7 @@ abstract class FogVisitorDatabase : RoomDatabase() {
                     context.applicationContext,
                     FogVisitorDatabase::class.java,
                     "fog_visitor_truth.db"
-                ).fallbackToDestructiveMigration()
-                    .allowMainThreadQueries()
-                    .build()
+                ).build()
                     .also { INSTANCE = it }
             }
         }

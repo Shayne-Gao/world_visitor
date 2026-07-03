@@ -46,6 +46,23 @@ object PolylineCodec {
         )
     }
 
+    fun decode(encoded: String): List<List<Double>> {
+        if (encoded.isEmpty()) return emptyList()
+
+        val coordinates = mutableListOf<List<Double>>()
+        val indexRef = IntArray(1)
+        var lat = 0
+        var lng = 0
+
+        while (indexRef[0] < encoded.length) {
+            lat += decodeValue(encoded, indexRef)
+            lng += decodeValue(encoded, indexRef)
+            coordinates.add(listOf(lng / 1e5, lat / 1e5))
+        }
+
+        return coordinates
+    }
+
     private fun encodeValue(value: Int, output: StringBuilder) {
         var current = if (value < 0) (value shl 1).inv() else value shl 1
         while (current >= 0x20) {
@@ -53,6 +70,22 @@ object PolylineCodec {
             current = current shr 5
         }
         output.append((current + 63).toChar())
+    }
+
+    private fun decodeValue(encoded: String, indexRef: IntArray): Int {
+        var shift = 0
+        var result = 0
+        var b: Int
+        do {
+            if (indexRef[0] >= encoded.length) {
+                throw IllegalArgumentException("Invalid encoded polyline")
+            }
+            b = encoded[indexRef[0]++].code - 63
+            result = result or ((b and 0x1f) shl shift)
+            shift += 5
+        } while (b >= 0x20)
+
+        return if ((result and 1) != 0) (result shr 1).inv() else result shr 1
     }
 
     private fun Double.toFixed6(): Double = String.format("%.6f", this).toDouble()
