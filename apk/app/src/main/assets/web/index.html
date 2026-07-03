@@ -182,7 +182,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.72 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.73 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1090,8 +1090,13 @@ button:active { transform: scale(0.92); }
                 durationMs: Math.round(performance.now() - diffStartedAt),
                 hasNewFog: String(!!newFog)
             });
-            historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift();
-            appData.sourceOfTruth.tracks.push(trackRecord);
+            const shouldPersistTrack =
+                !!newFog ||
+                (trackSource !== 'manual_locate' && trackSource !== 'web_draw');
+            if (shouldPersistTrack) {
+                historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift();
+                appData.sourceOfTruth.tracks.push(trackRecord);
+            }
             if(newFog) {
                 appData.renderCache.globalFog = newFog;
                 appData.renderCache.globalExplored = appData.renderCache.globalExplored ? turf.union(appData.renderCache.globalExplored, mask) : mask;
@@ -1104,7 +1109,7 @@ button:active { transform: scale(0.92); }
                 });
             }
             await yieldToMainThread();
-            if (window.AndroidBridge && window.AndroidBridge.appendNativeTrackJson) {
+            if (shouldPersistTrack && window.AndroidBridge && window.AndroidBridge.appendNativeTrackJson) {
                 appendBlockingOverlayLine('写入原生存档', true, overlayToken);
                 try {
                     parseNativeBridgeResult(
@@ -1124,7 +1129,8 @@ button:active { transform: scale(0.92); }
                 points: String(coordsArray?.length || 0),
                 durationMs: Math.round(performance.now() - processTrackStartedAt),
                 trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0),
-                hasNewFog: String(!!newFog)
+                hasNewFog: String(!!newFog),
+                persisted: String(shouldPersistTrack)
             });
             checkLocalRegion(simplifiedCoords[simplifiedCoords.length-1][1], simplifiedCoords[simplifiedCoords.length-1][0]);
         } catch(err) {
@@ -1295,7 +1301,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.72',
+            appVersion: 'v0.1.73',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

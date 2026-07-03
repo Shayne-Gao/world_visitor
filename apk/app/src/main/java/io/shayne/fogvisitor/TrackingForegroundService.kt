@@ -292,7 +292,7 @@ class TrackingForegroundService : Service() {
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_ACCEPTED_ACCURACY_METERS = 35f
-        private const val MIN_POINT_DISTANCE_METERS = 8f
+        private const val MIN_POINT_DISTANCE_METERS = 20f
         private const val STATIONARY_SKIP_WINDOW_MS = 2 * 60 * 1000L
     }
 

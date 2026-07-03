@@ -64,6 +64,20 @@ class NativeTrackStore(private val context: Context) {
         return runStore {
             val points = readDraftPoints()
             if (points.size < minPointCount) return@runStore null
+            if (isStationaryCluster(points)) {
+                val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
+                val lastPoint = seed.lastOrNull()
+                writeDraftPoints(seed)
+                updateStatus(
+                    isTracking = true,
+                    shouldTrack = true,
+                    draftPointCount = seed.size,
+                    lastPointAt = System.currentTimeMillis(),
+                    lastLng = lastPoint?.getOrNull(0),
+                    lastLat = lastPoint?.getOrNull(1)
+                )
+                return@runStore null
+            }
 
             val track = TrackRecord(
                 id = "trk_${System.currentTimeMillis()}_${(100..999).random()}",
@@ -562,6 +576,36 @@ class NativeTrackStore(private val context: Context) {
         }.getOrNull()
     }
 
+    private fun isStationaryCluster(points: List<List<Double>>): Boolean {
+        if (points.size < 2) return true
+        val first = points.first()
+        val last = points.last()
+        val displacementMeters = distanceMeters(
+            first.getOrElse(1) { 0.0 },
+            first.getOrElse(0) { 0.0 },
+            last.getOrElse(1) { 0.0 },
+            last.getOrElse(0) { 0.0 }
+        )
+        val bbox = PolylineCodec.calculateBbox(points)
+        val spreadMeters = if (bbox != null && bbox.size >= 4) {
+            distanceMeters(bbox[1], bbox[0], bbox[3], bbox[2])
+        } else {
+            0.0
+        }
+        return displacementMeters < MIN_MOVEMENT_FOR_TRACK_METERS && spreadMeters < MIN_MOVEMENT_FOR_TRACK_METERS
+    }
+
+    private fun distanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val earthRadiusMeters = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+            kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
+            kotlin.math.sin(dLng / 2) * kotlin.math.sin(dLng / 2)
+        val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+        return earthRadiusMeters * c
+    }
+
     private fun isLiveLocationSource(source: String): Boolean {
         return source in setOf(
             "manual_locate",
@@ -653,6 +697,7 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_LAST_ACCURACY_BITS = "last_accuracy_bits"
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
+        private const val MIN_MOVEMENT_FOR_TRACK_METERS = 20.0
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000
