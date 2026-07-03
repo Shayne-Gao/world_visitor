@@ -4,6 +4,14 @@
 
 ---
 
+## [v0.1.55] - 2026-04-24
+### 🧪 Manual Mark Freeze Logging (完成标记卡顿日志版)
+* **为“完成标记”路径增加阶段耗时日志**：补充 `processTrackAndSave()` 中的简化、mask、difference、saveData、renderLayers、buildTimeline 等耗时埋点，用于定位真正卡顿阶段。
+* **诊断导出增加本地性能日志**：长按左下角版本号导出的诊断 JSON 现在会附带 `performanceLog`，可以直接用于分析设备侧偶发卡顿。
+* **继续保留原生同步耗时打点**：配合此前的 `web_save_hook_native_sync_*` 日志，可以判断卡顿是在网页保存、渲染，还是在原生桥接同步。
+
+---
+
 ## [v0.1.54] - 2026-04-24
 ### 📶 APK Tracking Status UI (记录状态表达优化)
 * **追踪按钮文案更 App 化**：自动追踪主按钮改为“自动记录中”，追踪态的停止按钮改为“暂停记录”，让交互更接近持续记录型 App。

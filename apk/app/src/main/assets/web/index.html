@@ -177,7 +177,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.54 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.55 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -519,7 +519,19 @@ button:active { transform: scale(0.92); }
     //#region debug-point apk-ui-storage-regression-web-reporter
     const DEBUG_SERVER_URL = 'http://127.0.0.1:7777/event';
     const debugStartupMarks = { appStart: performance.now() };
+    window.__fogLocalDebugLog = window.__fogLocalDebugLog || [];
     async function reportDebugEvent(event, payload = {}) {
+        try {
+            window.__fogLocalDebugLog.push({
+                event,
+                payload,
+                at: Date.now(),
+                sinceAppStartMs: Math.round(performance.now() - debugStartupMarks.appStart)
+            });
+            if (window.__fogLocalDebugLog.length > 400) {
+                window.__fogLocalDebugLog.splice(0, window.__fogLocalDebugLog.length - 400);
+            }
+        } catch (e) {}
         try {
             await fetch(DEBUG_SERVER_URL, {
                 method: 'POST',
@@ -681,9 +693,17 @@ button:active { transform: scale(0.92); }
                 throw new Error('存档结构异常，已阻止写入以保护现有数据');
             }
 
+            const cloneStartedAt = performance.now();
             const safeData = cloneData(data);
+            reportDebugEvent('web_save_data_clone_done', {
+                durationMs: Math.round(performance.now() - cloneStartedAt)
+            });
+            const storageStartedAt = performance.now();
             await localforage.setItem(STORAGE_KEY, safeData);
             await localforage.setItem(SNAPSHOT_KEY, safeData);
+            reportDebugEvent('web_save_data_storage_done', {
+                durationMs: Math.round(performance.now() - storageStartedAt)
+            });
             await this.clearDiagnostic();
             //#region debug-point apk-ui-storage-regression-save-done
             reportDebugEvent('web_save_data_done', {
@@ -741,10 +761,19 @@ button:active { transform: scale(0.92); }
     }
 
     function renderLayers() {
+        const renderStartedAt = performance.now();
         if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
         
         // 自动追踪模式下：隐藏迷雾和探索区域多边形，地图全亮
-        if (isAutoRecording) return;
+        if (isAutoRecording) {
+            reportDebugEvent('web_render_layers_done', {
+                durationMs: Math.round(performance.now() - renderStartedAt),
+                isEditMode: String(isEditMode),
+                isAutoRecording: String(isAutoRecording),
+                shortCircuit: 'true'
+            });
+            return;
+        }
         
         let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
         if(isEditMode) { 
@@ -755,9 +784,15 @@ button:active { transform: scale(0.92); }
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
             if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
+        reportDebugEvent('web_render_layers_done', {
+            durationMs: Math.round(performance.now() - renderStartedAt),
+            isEditMode: String(isEditMode),
+            isAutoRecording: String(isAutoRecording),
+            shortCircuit: 'false'
+        });
     }
 
-    function buildTimeline() { timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); }
+    function buildTimeline() { const timelineStartedAt = performance.now(); timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); reportDebugEvent('web_build_timeline_done', { durationMs: Math.round(performance.now() - timelineStartedAt), timelineKeys: String(timelineKeys.length) }); }
     function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
     document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
     let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
@@ -816,7 +851,14 @@ button:active { transform: scale(0.92); }
         //#endregion
         if(!coordsArray || coordsArray.length === 0) return;
         let simplifiedCoords = coordsArray;
+        const simplifyStartedAt = performance.now();
         if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
+        reportDebugEvent('web_process_track_simplify_done', {
+            source: trackSource,
+            durationMs: Math.round(performance.now() - simplifyStartedAt),
+            originalPoints: String(coordsArray.length),
+            simplifiedPoints: String(simplifiedCoords.length)
+        });
         const trackRecord = { 
             id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), 
             timestamp: Date.now(), 
@@ -825,10 +867,21 @@ button:active { transform: scale(0.92); }
             encodedPath: PolylineUtil.encode(simplifiedCoords),
             bbox: getBbox(simplifiedCoords)
         };
+        const maskStartedAt = performance.now();
         let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
         mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
+        reportDebugEvent('web_process_track_mask_done', {
+            source: trackSource,
+            durationMs: Math.round(performance.now() - maskStartedAt)
+        });
         try {
+            const diffStartedAt = performance.now();
             let newFog = turf.difference(appData.renderCache.globalFog, mask);
+            reportDebugEvent('web_process_track_difference_done', {
+                source: trackSource,
+                durationMs: Math.round(performance.now() - diffStartedAt),
+                hasNewFog: String(!!newFog)
+            });
             if(newFog) { 
                 historyStack.push(JSON.stringify(appData)); if(historyStack.length > 30) historyStack.shift(); 
                 appData.sourceOfTruth.tracks.push(trackRecord); appData.renderCache.globalFog = newFog; 
@@ -991,7 +1044,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.54',
+            appVersion: 'v0.1.55',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1012,6 +1065,7 @@ button:active { transform: scale(0.92); }
                 draftPointCount: Array.isArray(draft) ? draft.length : 0,
                 diagnostic: diagnostic || null
             },
+            performanceLog: window.__fogLocalDebugLog || [],
             preferences: {
                 lastLayer: localStorage.getItem('fog_last_layer') || null
             }
@@ -1398,7 +1452,8 @@ button:active { transform: scale(0.92); }
     document.getElementById('endActionBtn').onclick = async () => {
         reportDebugEvent('web_end_action_clicked', {
             isEditMode: String(isEditMode),
-            isDrawing: String(isDrawing)
+            isDrawing: String(isDrawing),
+            currentPathPoints: String(currentPath?.length || 0)
         });
         if (isEditMode) {
             // 结束手动标记
