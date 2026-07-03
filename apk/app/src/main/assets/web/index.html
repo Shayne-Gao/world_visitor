@@ -52,6 +52,7 @@ button:active { transform: scale(0.92); }
 .pill-btn { border-radius: 22px; background: rgba(255,255,255,0.95); padding: 8px 16px; font-size: 13px; font-weight: bold; color: #007bff; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); cursor: pointer; border: none; }
 .pill-btn:hover { background: #fff; transform: translateY(-2px); }
 .pill-btn:active { transform: translateY(1px); }
+#manualDrawBtnFloating { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 18px; }
 
 #timelineContainer { position: absolute; bottom: 90px; right: 74px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 10px 15px; border-radius: 15px; width: 240px; display: flex; flex-direction: column; gap: 8px; align-items: center; transform: translateX(100%); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease; pointer-events: none; }
 #timelineContainer.expanded { transform: translateX(0); opacity: 1; pointer-events: auto; }
@@ -175,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="长按导出诊断信息">v0.1.57 (Schema v2.0)</div>
+     <div id="versionTag" title="长按导出诊断信息">v0.1.58 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -222,7 +223,7 @@ button:active { transform: scale(0.92); }
 <div id="rightSideTools">
     <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
     <div id="baseTools">
-        <button id="manualDrawBtnFloating" class="pill-btn"><i class="fa-solid fa-pen"></i> 开始标记</button>
+        <button id="manualDrawBtnFloating" class="icon-btn btn-shadow" title="开始标记"><i class="fa-solid fa-pen"></i></button>
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
         
@@ -793,17 +794,19 @@ button:active { transform: scale(0.92); }
         
         if (!isEditMode && !isAutoRecording) { 
             mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
-            document.getElementById('trackingStatusPanel').classList.add('hidden');
+            if (!window.__fogNativeTrackMode) document.getElementById('trackingStatusPanel').classList.add('hidden');
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
             renderLayers(); // 恢复迷雾显示
         } else if (isEditMode) { 
-            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i> 标记中';
+            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-check"></i>';
+            document.getElementById('manualDrawBtnFloating').title = '完成标记';
             document.getElementById('endActionBtn').innerHTML = viewTodayOnly ? '<i class="fa-solid fa-check"></i> 完成今日标记' : '<i class="fa-solid fa-check"></i> 完成标记'; 
             mainToggleContainer.classList.add('is-active'); 
             mainToggleContainer.classList.remove('is-tracking');
             if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
         } else {
-            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i> 开始标记';
+            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i>';
+            document.getElementById('manualDrawBtnFloating').title = '开始标记';
         }
     }
 
@@ -1020,7 +1023,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.57',
+            appVersion: 'v0.1.58',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1434,7 +1437,13 @@ button:active { transform: scale(0.92); }
         renderLayers(); updateCursor();
     };
     document.getElementById('manualDrawBtn').onclick = enterManualMarkMode;
-    document.getElementById('manualDrawBtnFloating').onclick = enterManualMarkMode;
+    document.getElementById('manualDrawBtnFloating').onclick = () => {
+        if (isEditMode) {
+            document.getElementById('endActionBtn').click();
+        } else {
+            document.getElementById('manualDrawBtn').click();
+        }
+    };
 
     document.getElementById('endActionBtn').onclick = async () => {
         reportDebugEvent('web_end_action_clicked', {

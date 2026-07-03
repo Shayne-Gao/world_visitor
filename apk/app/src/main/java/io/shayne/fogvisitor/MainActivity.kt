@@ -316,6 +316,7 @@ class MainActivity : AppCompatActivity() {
                       const modeText = document.getElementById('trackingModeText');
                       const lastPointText = document.getElementById('trackingLastPointText');
                       const segmentText = document.getElementById('trackingSegmentCountText');
+                      const trackingPanel = document.getElementById('trackingStatusPanel');
 
                       if (gpsText) gpsText.textContent = status.isTracking ? '自动记录中' : '已暂停记录';
                       if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
@@ -326,6 +327,10 @@ class MainActivity : AppCompatActivity() {
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                      if (trackingPanel) {
+                        if (status.isTracking || status.shouldTrack || window.isEditMode) trackingPanel.classList.remove('hidden');
+                        else trackingPanel.classList.add('hidden');
+                      }
                     } catch (e) {
                       console.warn('Failed to refresh native tracking status', e);
                     }
