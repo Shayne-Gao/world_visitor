@@ -182,7 +182,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.68 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">v0.1.69 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1234,7 +1234,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.68',
+            appVersion: 'v0.1.69',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1325,19 +1325,22 @@ button:active { transform: scale(0.92); }
     document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
 
     function locateMe(options = {}) {
-        const { auto = false, silent = false } = options;
+        const { auto = false, silent = false, recordCurrentPoint = false } = options;
         if(navigator.geolocation) {
             if (!auto) updateMainBtnUI('locating');
-            navigator.geolocation.getCurrentPosition(pos => {
+            navigator.geolocation.getCurrentPosition(async pos => {
                 let lat = pos.coords.latitude, lng = pos.coords.longitude; 
                 if (auto && !currentLocationMarker) map.setView([lat, lng], 16);
                 else map.flyTo([lat, lng], 16); 
                 updateCurrentLocationMarker(lat, lng);
+                if (recordCurrentPoint) {
+                    await processTrackAndSave([[lng, lat]], 'manual_locate');
+                }
                 if (!window.__fogNativeTrackMode) updateMainBtnUI();
             }, (err) => { if (!silent) { let msg = "定位失败\n"; if(err.code===1) msg+="权限被拒绝"; else if(err.code===2) msg+="无位置信息"; else if(err.code===3) msg+="请求超时"; alert(msg + "\n" + err.message); } updateMainBtnUI('error'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
-    document.getElementById('locateBtn').onclick = locateMe; 
+    document.getElementById('locateBtn').onclick = () => locateMe({ recordCurrentPoint: true }); 
 
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
     let isPocketMode = false;
