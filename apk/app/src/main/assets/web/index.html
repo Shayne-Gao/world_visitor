@@ -176,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.64 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">v0.1.65 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -477,7 +477,8 @@ button:active { transform: scale(0.92); }
         },
         _enc: function(n) { n = n < 0 ? ~(n << 1) : (n << 1); let s = ''; while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; } return s + String.fromCharCode(n + 63); } 
     };
-    function normalizeNativeArchiveForWebLocal(archive) {
+    function normalizeNativeArchiveForWebLocal(archive, options = {}) {
+        const { deferHeavy = false } = options;
         archive = archive || {};
         archive.metadata = archive.metadata || { totalAreaKm2: 0, createdAt: Date.now() };
         archive.sourceOfTruth = archive.sourceOfTruth || { tracks: [] };
@@ -485,6 +486,12 @@ button:active { transform: scale(0.92); }
         archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
         archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
         if (archive.renderCache.globalFog || archive.renderCache.globalExplored) return archive;
+        if (deferHeavy) {
+            archive.renderCache.globalFog = null;
+            archive.renderCache.globalExplored = null;
+            archive.__deferredNativeHydration = true;
+            return archive;
+        }
 
         let cumulativeExplored = null;
         const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
@@ -514,6 +521,31 @@ button:active { transform: scale(0.92); }
     const DRAFT_KEY = 'fog_live_draft'; // 【新增】用于防止崩溃的幽灵草稿箱标识
     const worldCoords = [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]]; const EARTH_AREA_KM2 = 510100000; 
     let appData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} } };
+    async function hydrateNativeRenderCacheAfterBoot() {
+        if (!(window.AndroidBridge && location.protocol === 'file:')) return;
+        if (!window.__fogPendingNativeHydration) return;
+        window.__fogPendingNativeHydration = false;
+        const hydrateStartedAt = performance.now();
+        reportDebugEvent('web_native_hydration_start', {
+            trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0)
+        });
+        setTimeout(async () => {
+            try {
+                const raw = AndroidBridge.exportNativeArchiveJson();
+                if (!raw) return;
+                const normalized = window.__fogNormalizeNativeArchiveForWeb
+                    ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
+                    : normalizeNativeArchiveForWebLocal(JSON.parse(raw));
+                await window.__fogApplyNormalizedArchiveToPage(normalized);
+                reportDebugEvent('web_native_hydration_done', {
+                    durationMs: Math.round(performance.now() - hydrateStartedAt),
+                    trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0)
+                });
+            } catch (e) {
+                reportDebugEvent('web_native_hydration_error', { error: String(e) });
+            }
+        }, 300);
+    }
 
     function isValidAppData(data) {
         if (!data || typeof data !== 'object') return false;
@@ -661,7 +693,8 @@ button:active { transform: scale(0.92); }
                     if (raw) {
                         const nativePrimary = window.__fogNormalizeNativeArchiveForWeb
                             ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
-                            : normalizeNativeArchiveForWebLocal(JSON.parse(raw));
+                            : normalizeNativeArchiveForWebLocal(JSON.parse(raw), { deferHeavy: true });
+                        if (nativePrimary?.__deferredNativeHydration) window.__fogPendingNativeHydration = true;
                         if (nativePrimary && (isValidAppData(nativePrimary) || nativePrimary.fog)) return nativePrimary;
                     }
                     return null;
@@ -1019,6 +1052,7 @@ button:active { transform: scale(0.92); }
             buildTimeline();
             if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
             renderLayers();
+            hydrateNativeRenderCacheAfterBoot();
             if (!window.__fogStartupLocateRequested && navigator.geolocation) {
                 window.__fogStartupLocateRequested = true;
                 setTimeout(() => locateMe({ auto: true, silent: true }), 600);
@@ -1052,9 +1086,11 @@ button:active { transform: scale(0.92); }
     }
     window.__fogApplyNormalizedArchiveToPage = async function(normalized) {
         appData = normalized;
-        await localforage.setItem(STORAGE_KEY, normalized);
-        await localforage.setItem(SNAPSHOT_KEY, normalized);
-        await DataManager.clearDiagnostic();
+        if (!(window.AndroidBridge && location.protocol === 'file:')) {
+            await localforage.setItem(STORAGE_KEY, normalized);
+            await localforage.setItem(SNAPSHOT_KEY, normalized);
+            await DataManager.clearDiagnostic();
+        }
         updateStatsUI();
         buildTimeline();
         if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
@@ -1083,7 +1119,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.64',
+            appVersion: 'v0.1.65',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1116,6 +1152,15 @@ button:active { transform: scale(0.92); }
                 await navigator.clipboard.writeText(jsonText);
                 alert('诊断信息已复制到剪贴板，请直接粘贴给我。');
                 return;
+            }
+        } catch (e) {}
+        try {
+            if (window.AndroidBridge && window.AndroidBridge.copyTextToClipboard) {
+                const ok = window.AndroidBridge.copyTextToClipboard('fog-diagnostic', jsonText);
+                if (ok) {
+                    alert('诊断信息已复制到剪贴板，请直接粘贴给我。');
+                    return;
+                }
             }
         } catch (e) {}
 

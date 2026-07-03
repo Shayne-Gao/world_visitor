@@ -1,6 +1,8 @@
 package io.shayne.fogvisitor
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.webkit.JavascriptInterface
 import android.widget.Toast
 
@@ -28,6 +30,14 @@ class JsBridge(
     @JavascriptInterface
     fun showNativeToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    @JavascriptInterface
+    fun copyTextToClipboard(label: String, text: String): Boolean {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return false
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        return true
     }
 
     @JavascriptInterface

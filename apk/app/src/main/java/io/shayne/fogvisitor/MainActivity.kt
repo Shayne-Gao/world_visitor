@@ -297,6 +297,7 @@ class MainActivity : AppCompatActivity() {
                         summary.trackCount > previous.trackCount ||
                         summary.latestTimestamp > previous.latestTimestamp;
                       window.__fogLastNativeArchiveSummary = summary;
+                      if ((window.__fogSkipNativeSyncUntil || 0) > Date.now()) return;
                       const newerThanPage =
                         summary.trackCount > currentTrackCount ||
                         summary.latestTimestamp > currentLatestTimestamp;
@@ -389,6 +390,7 @@ class MainActivity : AppCompatActivity() {
                     if (window.reportDebugEvent) {
                       window.reportDebugEvent('web_native_manual_mark_exit', {});
                     }
+                    window.__fogSkipNativeSyncUntil = Date.now() + 12000;
                     setTimeout(() => {
                       try {
                         AndroidBridge.startBackgroundTracking();
