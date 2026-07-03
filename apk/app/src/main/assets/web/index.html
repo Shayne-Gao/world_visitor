@@ -182,7 +182,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.66 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">v0.1.67 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -538,6 +538,7 @@ button:active { transform: scale(0.92); }
     let blockingOverlayVisible = false;
     function showBlockingOverlay(title = '正在处理，请稍候...') {
         blockingOverlay.querySelector('.overlay-title').textContent = title;
+        blockingOverlayLines.innerHTML = '';
         blockingOverlay.classList.add('active');
         blockingOverlayVisible = true;
     }
@@ -553,6 +554,57 @@ button:active { transform: scale(0.92); }
         blockingOverlay.classList.remove('active');
         blockingOverlayVisible = false;
     }
+    function updateBlockingOverlayLastLine(text) {
+        const lines = blockingOverlayLines.querySelectorAll('.overlay-line');
+        if (!lines.length) {
+            appendBlockingOverlayLine(text);
+            return;
+        }
+        lines[lines.length - 1].textContent = `正在 ${text}...`;
+    }
+    function yieldToMainThread() {
+        return new Promise(resolve => setTimeout(resolve, 0));
+    }
+    async function rebuildRenderCacheProgressively(archive, options = {}) {
+        const {
+            onProgress = null,
+            chunkSize = 18
+        } = options;
+        archive = archive || {};
+        archive.metadata = archive.metadata || { totalAreaKm2: 0, createdAt: Date.now() };
+        archive.sourceOfTruth = archive.sourceOfTruth || { tracks: [] };
+        archive.renderCache = archive.renderCache || { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} };
+        archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
+        archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
+
+        let cumulativeExplored = null;
+        const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        for (let index = 0; index < tracks.length; index++) {
+            const track = tracks[index];
+            if (!track || !track.encodedPath) continue;
+            try {
+                const coords = PolylineUtil.decode(track.encodedPath);
+                if (!coords || !coords.length) continue;
+                const radius = track.brushRadiusKm || 0.02;
+                const mask = coords.length === 1
+                    ? turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' })
+                    : turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
+                cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
+            } catch (e) {}
+
+            if ((index + 1) % chunkSize === 0) {
+                if (onProgress) onProgress(index + 1, tracks.length);
+                await yieldToMainThread();
+            }
+        }
+        if (onProgress) onProgress(tracks.length, tracks.length);
+        archive.renderCache.globalExplored = cumulativeExplored;
+        archive.renderCache.globalFog = cumulativeExplored
+            ? turf.difference(turf.polygon(worldCoords), cumulativeExplored)
+            : turf.polygon(worldCoords);
+        archive.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
+        return archive;
+    }
     async function hydrateNativeRenderCacheAfterBoot() {
         if (!(window.AndroidBridge && location.protocol === 'file:')) return;
         if (!window.__fogPendingNativeHydration) return;
@@ -567,10 +619,15 @@ button:active { transform: scale(0.92); }
             try {
                 const raw = AndroidBridge.exportNativeArchiveJson();
                 if (!raw) return;
-                appendBlockingOverlayLine('构建探索区域');
+                appendBlockingOverlayLine('构建探索区域 0/0');
+                const parsed = JSON.parse(raw);
                 const normalized = window.__fogNormalizeNativeArchiveForWeb
-                    ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
-                    : normalizeNativeArchiveForWebLocal(JSON.parse(raw));
+                    ? window.__fogNormalizeNativeArchiveForWeb(parsed)
+                    : await rebuildRenderCacheProgressively(parsed, {
+                        onProgress(done, total) {
+                            updateBlockingOverlayLastLine(`构建探索区域 ${done}/${total}`);
+                        }
+                    });
                 appendBlockingOverlayLine('渲染地图图层');
                 await window.__fogApplyNormalizedArchiveToPage(normalized);
                 reportDebugEvent('web_native_hydration_done', {
@@ -948,6 +1005,8 @@ button:active { transform: scale(0.92); }
         });
         //#endregion
         if(!coordsArray || coordsArray.length === 0) return;
+        showBlockingOverlay(trackSource === 'web_draw' ? '正在合并标记数据...' : '正在恢复轨迹数据...');
+        appendBlockingOverlayLine('简化轨迹点');
         let simplifiedCoords = coordsArray;
         const simplifyStartedAt = performance.now();
         if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
@@ -957,6 +1016,7 @@ button:active { transform: scale(0.92); }
             originalPoints: String(coordsArray.length),
             simplifiedPoints: String(simplifiedCoords.length)
         });
+        await yieldToMainThread();
         const trackRecord = { 
             id: 'trk_'+Date.now()+'_'+Math.floor(Math.random()*1000), 
             timestamp: Date.now(), 
@@ -965,6 +1025,7 @@ button:active { transform: scale(0.92); }
             encodedPath: PolylineUtil.encode(simplifiedCoords),
             bbox: getBbox(simplifiedCoords)
         };
+        appendBlockingOverlayLine('生成探索范围');
         const maskStartedAt = performance.now();
         let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), brushRadiusKm, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), brushRadiusKm, {units: 'kilometers'});
         mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
@@ -972,7 +1033,9 @@ button:active { transform: scale(0.92); }
             source: trackSource,
             durationMs: Math.round(performance.now() - maskStartedAt)
         });
+        await yieldToMainThread();
         try {
+            appendBlockingOverlayLine('合并迷雾数据');
             const diffStartedAt = performance.now();
             let newFog = turf.difference(appData.renderCache.globalFog, mask);
             reportDebugEvent('web_process_track_difference_done', {
@@ -986,13 +1049,16 @@ button:active { transform: scale(0.92); }
                 appData.renderCache.globalExplored = appData.renderCache.globalExplored ? turf.union(appData.renderCache.globalExplored, mask) : mask;
                 let tKey = getTimeKey(); appData.renderCache.dailyExplored[tKey] = appData.renderCache.dailyExplored[tKey] ? turf.union(appData.renderCache.dailyExplored[tKey], mask) : mask;
                 appData.metadata.totalAreaKm2 = calcTotalArea();
+                await yieldToMainThread();
                 if (window.AndroidBridge && window.AndroidBridge.appendNativeTrackJson) {
+                    appendBlockingOverlayLine('写入原生存档');
                     try {
                         window.AndroidBridge.appendNativeTrackJson(JSON.stringify(trackRecord));
                     } catch (nativeErr) {
                         reportDebugEvent('web_native_append_track_error', { error: String(nativeErr) });
                     }
                 }
+                appendBlockingOverlayLine('刷新地图图层');
                 updateStatsUI(); renderLayers(); await DataManager.saveData(appData); 
                 reportDebugEvent('web_process_track_done', {
                     source: trackSource,
@@ -1000,13 +1066,17 @@ button:active { transform: scale(0.92); }
                     durationMs: Math.round(performance.now() - processTrackStartedAt),
                     trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0)
                 });
+                clearBlockingOverlay();
                 checkLocalRegion(simplifiedCoords[simplifiedCoords.length-1][1], simplifiedCoords[simplifiedCoords.length-1][0]);
+            } else {
+                clearBlockingOverlay();
             }
         } catch(err) {
             reportDebugEvent('web_process_track_error', {
                 source: trackSource,
                 error: String(err)
             });
+            clearBlockingOverlay();
             console.error(err);
         }
     }
@@ -1164,7 +1234,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.66',
+            appVersion: 'v0.1.67',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
