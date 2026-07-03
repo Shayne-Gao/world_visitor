@@ -28,7 +28,7 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
-#trackingStatusPanel { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.88); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 240px; }
+#trackingStatusPanel { position: absolute; bottom: 54px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.88); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 240px; }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
@@ -176,7 +176,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.63 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">v0.1.64 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -1083,7 +1083,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.63',
+            appVersion: 'v0.1.64',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

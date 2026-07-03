@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingImportMergeMode = false
+    private var importPickerActive = false
     private var pendingExportFileName = "fog_apk_export.json"
 
     private val permissionLauncher =
@@ -45,8 +46,15 @@ class MainActivity : AppCompatActivity() {
 
     private val importArchiveLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri != null) {
+            val shouldHandle = importPickerActive
+            importPickerActive = false
+            if (uri != null && shouldHandle) {
                 handleImportedArchiveUri(uri, pendingImportMergeMode)
+            } else if (uri != null && !shouldHandle) {
+                reportDebugEvent(
+                    "native_import_result_ignored",
+                    mapOf("reason" to "picker_not_active", "uri" to uri.toString())
+                )
             }
         }
 
@@ -519,6 +527,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchImportPicker(merge: Boolean) {
         pendingImportMergeMode = merge
+        importPickerActive = true
         //#region debug-point apk-ui-storage-regression-native-launch-picker
         reportDebugEvent(
             "native_launch_import_picker",
