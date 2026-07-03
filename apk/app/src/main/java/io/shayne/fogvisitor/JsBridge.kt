@@ -52,6 +52,14 @@ class JsBridge(
         trackStore.importArchiveJson(rawJson, merge)
 
     @JavascriptInterface
+    fun appendNativeTrackJson(rawJson: String): String =
+        trackStore.appendTrackJson(rawJson)
+
+    @JavascriptInterface
+    fun replaceNativeTracksJson(rawJson: String): String =
+        trackStore.replaceTracksJson(rawJson)
+
+    @JavascriptInterface
     fun getNativeArchiveSummary(): String = trackStore.getArchiveSummaryJson()
 
     @JavascriptInterface

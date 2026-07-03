@@ -241,45 +241,11 @@ class MainActivity : AppCompatActivity() {
                       });
                     }
                     await originalSave(data);
-                    try {
-                      const syncPayload = {
-                        version: data?.version || '2.0.0',
-                        metadata: {
-                          totalAreaKm2: data?.metadata?.totalAreaKm2 || 0,
-                          createdAt: data?.metadata?.createdAt || Date.now()
-                        },
-                        sourceOfTruth: {
-                          tracks: data?.sourceOfTruth?.tracks || []
-                        }
-                      };
-                      setTimeout(() => {
-                        try {
-                          const nativeSyncStartedAt = performance.now();
-                          AndroidBridge.importNativeArchiveJson(JSON.stringify(syncPayload), true);
-                          if (window.reportDebugEvent) {
-                            window.reportDebugEvent('web_save_hook_native_sync_done', {
-                              durationMs: Math.round(performance.now() - nativeSyncStartedAt),
-                              totalMs: Math.round(performance.now() - hookStartedAt),
-                              trackCount: String(syncPayload.sourceOfTruth.tracks.length)
-                            });
-                          }
-                        } catch (deferredErr) {
-                          if (window.reportDebugEvent) {
-                            window.reportDebugEvent('web_save_hook_native_sync_error', {
-                              error: String(deferredErr),
-                              totalMs: Math.round(performance.now() - hookStartedAt)
-                            });
-                          }
-                        }
-                      }, 0);
-                    } catch (e) {
-                      if (window.reportDebugEvent) {
-                        window.reportDebugEvent('web_save_hook_native_sync_error', {
-                          error: String(e),
-                          totalMs: Math.round(performance.now() - hookStartedAt)
-                        });
-                      }
-                      console.warn('Native archive sync failed:', e);
+                    if (window.reportDebugEvent) {
+                      window.reportDebugEvent('web_save_hook_cache_only_done', {
+                        totalMs: Math.round(performance.now() - hookStartedAt),
+                        trackCount: String(data?.sourceOfTruth?.tracks?.length || 0)
+                      });
                     }
                   };
                   window.__fogSaveHookInstalled = true;

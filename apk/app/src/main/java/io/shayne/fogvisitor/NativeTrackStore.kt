@@ -158,6 +158,28 @@ class NativeTrackStore(private val context: Context) {
         return importParsedArchive(parsed, merge)
     }
 
+    fun appendTrackJson(rawJson: String): String {
+        val track = trackFromJson(JSONObject(rawJson))
+        dao.upsertTrack(track.toEntity())
+        return JSONObject().apply {
+            put("ok", true)
+            put("trackId", track.id)
+            put("trackCount", dao.getTrackCount())
+        }.toString()
+    }
+
+    fun replaceTracksJson(rawJson: String): String {
+        val parsed = JSONArray(rawJson)
+        val tracks = (0 until parsed.length()).map { index ->
+            trackFromJson(parsed.getJSONObject(index))
+        }.sortedBy { it.timestamp }
+        dao.replaceAllTracks(tracks.map { it.toEntity() })
+        return JSONObject().apply {
+            put("ok", true)
+            put("trackCount", tracks.size)
+        }.toString()
+    }
+
     fun importArchiveUri(uri: Uri, merge: Boolean): String {
         val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalStateException("无法读取导入文件")

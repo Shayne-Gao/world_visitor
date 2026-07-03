@@ -4,6 +4,16 @@
 
 ---
 
+## [v0.1.61] - 2026-04-24
+### ✅ Native Single Truth Phase 2 (原生单一真相第二阶段)
+* **页面不再通过全局 save hook 双写真相**：`DataManager.saveData()` 只负责缓存写入，不再默认把整份 `appData` 再同步回原生主档。
+* **手动标记改为显式提交给原生**：`processTrackAndSave()` 在生成新的 track 后，会显式调用原生 `appendNativeTrackJson()` 落库；页面只做即时视图更新与缓存。
+* **撤销/优化改为显式替换原生真相**：`undo` 与会重排轨迹集合的流程现在通过 `replaceNativeTracksJson()` 提交到原生，避免页面缓存和原生主档再次分叉。
+* **APK 环境启动只认原生 truth**：在 `file:// + AndroidBridge` 场景下，页面不再把 `localforage` 当正式主档回退；本地仅作为缓存，不再参与权威数据仲裁。
+* **更接近完整 App 版链路**：自动记录、手动标记、重置、导入导出开始围绕原生 `Room` 单一真相工作，WebView 进一步退化为视图与缓存层。
+
+---
+
 ## [v0.1.60] - 2026-04-24
 ### 🗃️ Native Single Truth Phase 1 (原生单一真相第一阶段)
 * **引入 Room 作为 App 唯一正式存档**：新增 `fog_visitor_truth.db`，用原生数据库承载轨迹段与当前小段点，不再把底层 JSON 文件当唯一主档。
