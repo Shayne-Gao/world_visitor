@@ -254,11 +254,18 @@ class MainActivity : AppCompatActivity() {
                 const current = await localforage.getItem('fog_of_world_data_v5');
                 const currentTrackCount = current?.sourceOfTruth?.tracks?.length || 0;
                 const currentLatestTimestamp = (current?.sourceOfTruth?.tracks || []).reduce((max, t) => Math.max(max, t.timestamp || 0), 0);
+                const currentHasRenderableCache = !!(current?.renderCache && (current.renderCache.globalFog || current.renderCache.globalExplored));
 
                 const shouldReplaceLocal =
                   !current ||
                   nativeSummary.trackCount > currentTrackCount ||
                   nativeSummary.latestTimestamp > currentLatestTimestamp;
+
+                if (currentHasRenderableCache && shouldReplaceLocal) {
+                  window.__fogPendingNativeHydration = true;
+                  window.__fogHydrateNativeInBackground = true;
+                  return false;
+                }
 
                 if (!shouldReplaceLocal) {
                   return false;
@@ -344,7 +351,7 @@ class MainActivity : AppCompatActivity() {
                         ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
                         : rawArchive;
                       if (window.__fogApplyNormalizedArchiveToPage) {
-                        await window.__fogApplyNormalizedArchiveToPage(normalized);
+                        await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: false });
                         if (window.reportDebugEvent) {
                           window.reportDebugEvent('web_native_archive_incremental_sync', {
                             trackCount: String(summary.trackCount),

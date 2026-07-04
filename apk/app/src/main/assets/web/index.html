@@ -182,7 +182,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.76 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.77 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -620,34 +620,38 @@ button:active { transform: scale(0.92); }
         if (!window.__fogPendingNativeHydration) return;
         window.__fogPendingNativeHydration = false;
         const hydrateStartedAt = performance.now();
-        const overlayToken = showBlockingOverlay('正在准备地图数据...');
-        appendBlockingOverlayLine('读取原生存档', true, overlayToken);
+        const runInBackground = !!window.__fogHydrateNativeInBackground;
+        const overlayToken = runInBackground ? null : showBlockingOverlay('正在准备地图数据...');
+        if (overlayToken) appendBlockingOverlayLine('读取原生存档', true, overlayToken);
         reportDebugEvent('web_native_hydration_start', {
-            trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0)
+            trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0),
+            background: String(runInBackground)
         });
         setTimeout(async () => {
             try {
                 const raw = AndroidBridge.exportNativeArchiveJson();
                 if (!raw) return;
-                appendBlockingOverlayLine('构建探索区域 0/0', true, overlayToken);
+                if (overlayToken) appendBlockingOverlayLine('构建探索区域 0/0', true, overlayToken);
                 const parsed = JSON.parse(raw);
                 const normalized = window.__fogNormalizeNativeArchiveForWeb
                     ? window.__fogNormalizeNativeArchiveForWeb(parsed)
                     : await rebuildRenderCacheProgressively(parsed, {
                         onProgress(done, total) {
-                            updateBlockingOverlayLastLine(`构建探索区域 ${done}/${total}`, overlayToken);
+                            if (overlayToken) updateBlockingOverlayLastLine(`构建探索区域 ${done}/${total}`, overlayToken);
                         }
                     });
-                appendBlockingOverlayLine('渲染地图图层', true, overlayToken);
-                await window.__fogApplyNormalizedArchiveToPage(normalized);
+                if (overlayToken) appendBlockingOverlayLine('渲染地图图层', true, overlayToken);
+                await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: !runInBackground });
                 reportDebugEvent('web_native_hydration_done', {
                     durationMs: Math.round(performance.now() - hydrateStartedAt),
-                    trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0)
+                    trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
+                    background: String(runInBackground)
                 });
             } catch (e) {
                 reportDebugEvent('web_native_hydration_error', { error: String(e) });
             } finally {
-                clearBlockingOverlay(overlayToken);
+                if (overlayToken) clearBlockingOverlay(overlayToken);
+                window.__fogHydrateNativeInBackground = false;
             }
         }, 300);
     }
@@ -673,6 +677,19 @@ button:active { transform: scale(0.92); }
 
     function isNativeTruthMode() {
         return !!(window.AndroidBridge && location.protocol === 'file:');
+    }
+
+    function getTrackCountFromData(data) {
+        return Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks.length : 0;
+    }
+
+    function getLatestTrackTimestampFromData(data) {
+        const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
+        return tracks.reduce((max, track) => Math.max(max, track?.timestamp || 0), 0);
+    }
+
+    function hasRenderableMapCache(data) {
+        return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
     }
 
     function getTrackBrushRadius(trackSource) {
@@ -819,12 +836,41 @@ button:active { transform: scale(0.92); }
         async loadPrimary() {
             try {
                 if (window.AndroidBridge && location.protocol === 'file:') {
+                    let nativeSummary = null;
+                    try {
+                        nativeSummary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
+                    } catch (e) {}
+                    const localPrimary = await localforage.getItem(STORAGE_KEY).catch(() => null);
+                    if (isValidAppData(localPrimary) && hasRenderableMapCache(localPrimary)) {
+                        if (!nativeSummary) return localPrimary;
+                        const localTrackCount = getTrackCountFromData(localPrimary);
+                        const localLatestTimestamp = getLatestTrackTimestampFromData(localPrimary);
+                        const nativeMatchesLocal =
+                            nativeSummary.trackCount === localTrackCount &&
+                            (nativeSummary.latestTimestamp || 0) === localLatestTimestamp;
+                        if (nativeMatchesLocal) {
+                            window.__fogPendingNativeHydration = false;
+                            window.__fogHydrateNativeInBackground = false;
+                            return localPrimary;
+                        }
+                        const nativeAhead =
+                            nativeSummary.trackCount > localTrackCount ||
+                            nativeSummary.latestTimestamp > localLatestTimestamp;
+                        if (nativeAhead) {
+                            window.__fogPendingNativeHydration = true;
+                            window.__fogHydrateNativeInBackground = true;
+                            return localPrimary;
+                        }
+                    }
                     const raw = AndroidBridge.exportNativeArchiveJson();
                     if (raw) {
                         const nativePrimary = window.__fogNormalizeNativeArchiveForWeb
                             ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
                             : normalizeNativeArchiveForWebLocal(JSON.parse(raw), { deferHeavy: true });
-                        if (nativePrimary?.__deferredNativeHydration) window.__fogPendingNativeHydration = true;
+                        if (nativePrimary?.__deferredNativeHydration) {
+                            window.__fogPendingNativeHydration = true;
+                            window.__fogHydrateNativeInBackground = false;
+                        }
                         if (nativePrimary && (isValidAppData(nativePrimary) || nativePrimary.fog)) return nativePrimary;
                     }
                     return null;
@@ -1254,27 +1300,28 @@ button:active { transform: scale(0.92); }
             //#endregion
         });
     }
-    window.__fogApplyNormalizedArchiveToPage = async function(normalized) {
-        const overlayToken = showBlockingOverlay('正在应用数据...');
+    window.__fogApplyNormalizedArchiveToPage = async function(normalized, options = {}) {
+        const showOverlay = options.showOverlay !== false;
+        const overlayToken = showOverlay ? showBlockingOverlay('正在应用数据...') : null;
         try {
-            appendBlockingOverlayLine('应用存档数据', true, overlayToken);
+            if (overlayToken) appendBlockingOverlayLine('应用存档数据', true, overlayToken);
             setAppData(normalized);
             if (!(window.AndroidBridge && location.protocol === 'file:')) {
-                appendBlockingOverlayLine('写入本地缓存', true, overlayToken);
+                if (overlayToken) appendBlockingOverlayLine('写入本地缓存', true, overlayToken);
                 await localforage.setItem(STORAGE_KEY, normalized);
                 await localforage.setItem(SNAPSHOT_KEY, normalized);
                 await DataManager.clearDiagnostic();
             }
-            appendBlockingOverlayLine('更新统计信息', true, overlayToken);
+            if (overlayToken) appendBlockingOverlayLine('更新统计信息', true, overlayToken);
             updateStatsUI();
-            appendBlockingOverlayLine('重建时间线', true, overlayToken);
+            if (overlayToken) appendBlockingOverlayLine('重建时间线', true, overlayToken);
             buildTimeline();
             if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
             else document.getElementById('toggleTimelineBtn').classList.add('hidden');
-            appendBlockingOverlayLine('渲染图层', true, overlayToken);
+            if (overlayToken) appendBlockingOverlayLine('渲染图层', true, overlayToken);
             renderLayers();
         } finally {
-            clearBlockingOverlay(overlayToken);
+            if (overlayToken) clearBlockingOverlay(overlayToken);
         }
     };
     localforage.config({ name: 'FogOfWorldDB', storeName: 'fog_data_store' }); initData();
@@ -1299,7 +1346,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.76',
+            appVersion: 'v0.1.77',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

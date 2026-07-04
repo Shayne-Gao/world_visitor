@@ -21,6 +21,8 @@ Required behavior:
 - before release, explicitly inspect for nearby regressions in the same flow
 - if a fix changes data semantics, tracking semantics, UI state, or storage behavior, review the whole chain instead of only the touched function
 - if there is evidence that the fix made the behavior worse, stop, acknowledge it clearly, and correct it before packaging
+- if the user has already identified a concrete bug or confirmed optimization target, fix it directly; do not ask redundant approval questions like whether to proceed with the repair
+- only ask follow-up questions when a missing requirement truly blocks implementation or when multiple incompatible product directions exist
 
 Use this skill whenever you are:
 - changing code for the Android app
