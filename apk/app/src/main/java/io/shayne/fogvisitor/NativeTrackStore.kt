@@ -21,6 +21,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 class NativeTrackStore(private val context: Context) {
 
@@ -218,13 +219,16 @@ class NativeTrackStore(private val context: Context) {
 
     fun buildExportFileName(): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return "fog_apk_export_$timestamp.json"
+        return "fog_apk_export_$timestamp.fogbak"
     }
 
     fun exportArchiveToUri(uri: Uri): String {
         val json = exportArchiveJson()
         context.contentResolver.openOutputStream(uri)?.use { stream ->
-            stream.write(json.toByteArray())
+            GZIPOutputStream(stream).use { gzip ->
+                gzip.write(json.toByteArray(Charsets.UTF_8))
+                gzip.finish()
+            }
         } ?: throw IllegalStateException("无法写入导出文件")
         return uri.toString()
     }
@@ -272,21 +276,19 @@ class NativeTrackStore(private val context: Context) {
             dao.replaceAllTracks(tracks.map { it.toEntity() })
             dao.clearDraftPoints()
             replaceExploredCells(tracks)
-            val lastTrack = tracks.lastOrNull()
-            val lastPoint = lastTrack?.let(::extractLastPoint)
             updateStatus(
                 isTracking = false,
                 shouldTrack = false,
                 draftPointCount = 0,
-                lastPointAt = lastTrack?.timestamp ?: 0L,
-                lastLng = lastPoint?.getOrNull(0),
-                lastLat = lastPoint?.getOrNull(1),
-                lastAccuracy = null
+                lastPointAt = currentLivePointAt(),
+                lastLng = currentLiveLng(),
+                lastLat = currentLiveLat(),
+                lastAccuracy = currentLiveAccuracy()
             )
             JSONObject().apply {
                 put("ok", true)
                 put("trackCount", tracks.size)
-                put("latestTimestamp", lastTrack?.timestamp ?: 0L)
+                put("latestTimestamp", tracks.lastOrNull()?.timestamp ?: 0L)
             }.toString()
         }
     }
@@ -350,22 +352,20 @@ class NativeTrackStore(private val context: Context) {
                 dao.clearDraftPoints()
             }
             replaceExploredCells(finalTracks)
-            val lastTrack = finalTracks.lastOrNull()
-            val lastPoint = lastTrack?.let(::extractLastPoint)
             updateStatus(
                 isTracking = false,
                 shouldTrack = false,
                 draftPointCount = if (merge) readDraftPoints().size else 0,
-                lastPointAt = lastTrack?.timestamp ?: 0L,
-                lastLng = lastPoint?.getOrNull(0),
-                lastLat = lastPoint?.getOrNull(1),
-                lastAccuracy = null
+                lastPointAt = currentLivePointAt(),
+                lastLng = currentLiveLng(),
+                lastLat = currentLiveLat(),
+                lastAccuracy = currentLiveAccuracy()
             )
             JSONObject().apply {
                 put("ok", true)
                 put("mode", if (merge) "merge" else "replace")
                 put("trackCount", finalTracks.size)
-                put("latestTimestamp", lastTrack?.timestamp ?: 0L)
+                put("latestTimestamp", finalTracks.lastOrNull()?.timestamp ?: 0L)
             }.toString()
         }
     }
@@ -570,6 +570,14 @@ class NativeTrackStore(private val context: Context) {
         val value = Double.fromBits(prefs.getLong(prefKey, 0L))
         return if (value.isNaN()) null else value
     }
+
+    private fun currentLivePointAt(): Long = prefs.getLong(KEY_LAST_POINT_AT, 0L)
+
+    private fun currentLiveLng(): Double? = readOptionalDouble(KEY_LAST_LNG_BITS)
+
+    private fun currentLiveLat(): Double? = readOptionalDouble(KEY_LAST_LAT_BITS)
+
+    private fun currentLiveAccuracy(): Double? = readOptionalDouble(KEY_LAST_ACCURACY_BITS)
 
     private fun getTrackingDebugEventsJson(): JSONArray = synchronized(DEBUG_LOG_LOCK) {
         JSONArray().apply {

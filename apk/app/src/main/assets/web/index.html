@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.81 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.82 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -397,25 +397,36 @@ button:active { transform: scale(0.92); }
 
     // 全局当前位置标识点
     let currentLocationMarker = null;
+    const CURRENT_LOCATION_MAX_AGE_MS = 2 * 60 * 1000;
+    function isFreshCurrentLocationTimestamp(timestamp, maxAgeMs = CURRENT_LOCATION_MAX_AGE_MS) {
+        const ts = Number(timestamp) || 0;
+        return ts > 0 && (Date.now() - ts) <= maxAgeMs;
+    }
     function focusMapOnCurrentLocation(lat, lng, options = {}) {
-        const { reason = 'unknown', force = false, zoom = 16 } = options;
+        const { reason = 'unknown', force = false, zoom = 16, timestamp = Date.now() } = options;
         const alreadyFocused = !!window.__fogHasFocusedCurrentLocation;
-        if (alreadyFocused && !force) {
+        const previousFocusedAt = Number(window.__fogFocusedCurrentLocationAt || 0);
+        const canUpgradeFocusedLocation = timestamp > previousFocusedAt;
+        if (alreadyFocused && !force && !canUpgradeFocusedLocation) {
             reportDebugEvent('web_focus_current_location_skipped', {
                 reason,
                 lat: String(lat),
-                lng: String(lng)
+                lng: String(lng),
+                timestamp: String(timestamp),
+                previousFocusedAt: String(previousFocusedAt)
             });
             return false;
         }
         window.__fogHasFocusedCurrentLocation = true;
+        window.__fogFocusedCurrentLocationAt = timestamp;
         map.setView([lat, lng], zoom, { animate: !force });
         reportDebugEvent('web_focus_current_location', {
             reason,
             lat: String(lat),
             lng: String(lng),
             force: String(force),
-            zoom: String(zoom)
+            zoom: String(zoom),
+            timestamp: String(timestamp)
         });
         return true;
     }
@@ -434,7 +445,7 @@ button:active { transform: scale(0.92); }
         });
     }
     async function ensureStartupLocationMarker(reason = 'unknown') {
-        if (currentLocationMarker || !navigator.geolocation) return;
+        if ((currentLocationMarker && window.__fogHasFocusedCurrentLocation) || !navigator.geolocation) return;
         const lastAttemptAt = window.__fogStartupMarkerAttemptAt || 0;
         if (Date.now() - lastAttemptAt < 5000) return;
         window.__fogStartupMarkerAttemptAt = Date.now();
@@ -746,6 +757,83 @@ button:active { transform: scale(0.92); }
         return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
     }
 
+    function buildPortableArchiveData(data) {
+        const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
+        const createdAt = data?.metadata?.createdAt || Date.now();
+        return {
+            version: '2.0.0',
+            metadata: {
+                totalAreaKm2: typeof data?.metadata?.totalAreaKm2 === 'number' ? data.metadata.totalAreaKm2 : 0,
+                createdAt
+            },
+            sourceOfTruth: {
+                tracks: tracks.map(track => ({ ...track }))
+            }
+        };
+    }
+
+    function ensureTrackBbox(track) {
+        if (track?.bbox) return track;
+        const coords = PolylineUtil.decode(track.encodedPath);
+        return { ...track, bbox: getBbox(coords) };
+    }
+
+    function getTrackMergeKey(track) {
+        return track.id || [
+            track.timestamp || 0,
+            track.source || '',
+            track.encodedPath || '',
+            track.brushRadiusKm || 0,
+            JSON.stringify(track.bbox || null)
+        ].join('|');
+    }
+
+    function normalizeImportedArchive(parsed) {
+        if (parsed.version === "1.0.0" || parsed.version === "2.0.0") {
+            const normalized = window.__fogNormalizeNativeArchiveForWeb
+                ? window.__fogNormalizeNativeArchiveForWeb(parsed)
+                : normalizeNativeArchiveForWebLocal(parsed);
+            normalized.sourceOfTruth.tracks = (normalized.sourceOfTruth.tracks || []).map(ensureTrackBbox);
+            return normalized;
+        }
+        if (parsed.fog) {
+            const legacy = {
+                version: "2.0.0",
+                metadata: { totalAreaKm2: 0, createdAt: Date.now() },
+                sourceOfTruth: { tracks: [] },
+                renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} }
+            };
+            try { legacy.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {}
+            return normalizeNativeArchiveForWebLocal(legacy);
+        }
+        throw new Error("无效的存档格式");
+    }
+
+    function mergeTrackArchivesPreservingTruth(currentData, importedData) {
+        const mergedMap = new Map();
+        const allTracks = [
+            ...(currentData?.sourceOfTruth?.tracks || []),
+            ...(importedData?.sourceOfTruth?.tracks || [])
+        ].map(ensureTrackBbox);
+        allTracks.forEach(track => {
+            const key = getTrackMergeKey(track);
+            if (!mergedMap.has(key)) mergedMap.set(key, track);
+        });
+        const mergedTracks = Array.from(mergedMap.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        return normalizeNativeArchiveForWebLocal({
+            version: '2.0.0',
+            metadata: {
+                totalAreaKm2: 0,
+                createdAt: Math.min(
+                    currentData?.metadata?.createdAt || Date.now(),
+                    importedData?.metadata?.createdAt || Date.now()
+                )
+            },
+            sourceOfTruth: { tracks: mergedTracks },
+            renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} }
+        });
+    }
+
     function getTrackBrushRadius(trackSource) {
         return trackSource === 'web_draw' ? brushRadiusKm : 0.02;
     }
@@ -842,6 +930,7 @@ button:active { transform: scale(0.92); }
         if (!panel || !btn) return;
         panel.classList.toggle('compact', !!window.__fogTrackingDebugCompact);
         btn.textContent = window.__fogTrackingDebugCompact ? '展开日志' : '缩小日志';
+        if (typeof renderLayers === 'function') renderLayers();
     }
     document.addEventListener('DOMContentLoaded', () => {
         const btn = document.getElementById('trackingLogToggleBtn');
@@ -1085,7 +1174,7 @@ button:active { transform: scale(0.92); }
         }
     };
 
-    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+    let fogLayer, exploredLayer, savedTrackDebugLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
     let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
 
     const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
@@ -1134,7 +1223,7 @@ button:active { transform: scale(0.92); }
 
     function renderLayers() {
         const renderStartedAt = performance.now();
-        if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer);
+        if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer); if(savedTrackDebugLayer) map.removeLayer(savedTrackDebugLayer);
         
         // 自动追踪模式下：隐藏迷雾和探索区域多边形，地图全亮
         if (isAutoRecording) {
@@ -1156,11 +1245,28 @@ button:active { transform: scale(0.92); }
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
             if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
+        if (!window.__fogTrackingDebugCompact && Array.isArray(appData?.sourceOfTruth?.tracks) && appData.sourceOfTruth.tracks.length > 0 && appData.sourceOfTruth.tracks.length <= 1500) {
+            const trackLines = appData.sourceOfTruth.tracks
+                .map(track => {
+                    const coords = PolylineUtil.decode(track.encodedPath || '');
+                    if (!coords || coords.length === 0) return null;
+                    const latLngs = coords.map(([lng, lat]) => [lat, lng]);
+                    return L.polyline(latLngs, {
+                        color: '#f59e0b',
+                        weight: 2,
+                        opacity: 0.28,
+                        interactive: false
+                    });
+                })
+                .filter(Boolean);
+            if (trackLines.length > 0) savedTrackDebugLayer = L.layerGroup(trackLines).addTo(map);
+        }
         reportDebugEvent('web_render_layers_done', {
             durationMs: Math.round(performance.now() - renderStartedAt),
             isEditMode: String(isEditMode),
             isAutoRecording: String(isAutoRecording),
-            shortCircuit: 'false'
+            shortCircuit: 'false',
+            debugTrackLayer: String(!!savedTrackDebugLayer)
         });
     }
 
@@ -1480,7 +1586,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.81',
+            appVersion: 'v0.1.82',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -2138,7 +2244,7 @@ button:active { transform: scale(0.92); }
     document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; window.appData = appData; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
     
     document.getElementById('exportBtn').onclick = async () => { 
-        let exportData = JSON.parse(JSON.stringify(appData)); exportData.renderCache.globalFog = null; 
+        const exportData = buildPortableArchiveData(appData);
         const jsonStr = JSON.stringify(exportData); const d = new Date(), p = n => n.toString().padStart(2, '0');
         const filenameBase = `world_visit_record_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
         try {
@@ -2165,22 +2271,7 @@ button:active { transform: scale(0.92); }
             else { jsonStr = await file.text(); }
             let parsed = JSON.parse(jsonStr);
             
-            // 确保 parsed 格式统一 (支持 v1.0.0 到 v2.0.0 的平滑过渡)
-            let targetData;
-            if(parsed.version === "1.0.0" || parsed.version === "2.0.0") { 
-                targetData = parsed; 
-                // 为旧版数据补全 bbox
-                targetData.sourceOfTruth.tracks.forEach(t => {
-                    if(!t.bbox) {
-                        const coords = PolylineUtil.decode(t.encodedPath);
-                        t.bbox = getBbox(coords);
-                    }
-                });
-            }
-            else if(parsed.fog) { 
-                targetData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
-                try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} 
-            } else { throw new Error("无效的存档格式"); }
+            let targetData = normalizeImportedArchive(parsed);
 
             if (!isMergeMode) {
                 if(!confirm("确定要恢复存档吗？当前所有未备份的数据将被覆盖！")) return;
@@ -2191,86 +2282,12 @@ button:active { transform: scale(0.92); }
                 alert("恢复成功！");
             } else {
                 updateMainBtnUI('processing');
-                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
-                
-                // 1. 全局去重与排序
-                const existingTracks = appData.sourceOfTruth.tracks;
-                const newTracks = targetData.sourceOfTruth.tracks;
-                const trackMap = new Map();
-                existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
-                newTracks.forEach(t => {
-                    const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
-                    if (!trackMap.has(key)) trackMap.set(key, t);
-                });
-                const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-                // 2. 空间增量判定与路径简化
-                let cumulativeExplored = null;
-                const optimizedTracks = [];
-                appData.renderCache.dailyExplored = {};
-
-                for(let i = 0; i < allTracks.length; i++) {
-                    const track = allTracks[i];
-                    let coords = PolylineUtil.decode(track.encodedPath);
-                    if(coords.length < 1) continue;
-
-                    // A. 路径简化 (A->B->C->D => A->D)
-                    if(coords.length > 2) {
-                        const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
-                        coords = line.geometry.coordinates;
-                        track.encodedPath = PolylineUtil.encode(coords); 
-                        track.bbox = getBbox(coords); // 重新计算简化后的 bbox
-                    } else {
-                        track.bbox = getBbox(coords); // 补全 bbox
-                    }
-
-                    // B. 空间增量判定 (是否点亮了新区域)
-                    let trackPoly;
-                    try {
-                        if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
-                        else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
-                        trackPoly = turf.truncate(trackPoly, {precision: 6});
-
-                        if (!cumulativeExplored) {
-                            cumulativeExplored = trackPoly;
-                            optimizedTracks.push(track);
-                        } else {
-                            // 计算增量面积
-                            const diff = turf.difference(trackPoly, cumulativeExplored);
-                            if (diff && turf.area(diff) > 1) { // 只有新增面积 > 1平方米时才保留
-                                cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                                optimizedTracks.push(track);
-                            } else {
-                                // 100% 冗余路径，跳过不加入 optimizedTracks
-                                continue; 
-                            }
-                        }
-
-                        // C. 重建时光机每日索引 (仅保留有贡献的轨迹)
-                        const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
-                        if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
-                        else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
-
-                    } catch(e) { 
-                        // 容灾：如果空间计算出错，保守起见保留原始数据
-                        optimizedTracks.push(track); 
-                        if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                    }
-                    
-                    if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
-                }
-
-                // 3. 最终数据同步
-                appData.sourceOfTruth.tracks = optimizedTracks;
-                appData.renderCache.globalExplored = cumulativeExplored;
-                if (cumulativeExplored) {
-                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), cumulativeExplored);
-                } else {
-                    appData.renderCache.globalFog = turf.polygon(worldCoords);
-                }
-                
-                appData.metadata.totalAreaKm2 = calcTotalArea();
-                alert(`深度合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
+                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在保真合并...';
+                const existingTrackCount = appData.sourceOfTruth.tracks.length;
+                appData = mergeTrackArchivesPreservingTruth(appData, targetData);
+                window.appData = appData;
+                const mergedTrackCount = appData.sourceOfTruth.tracks.length;
+                alert(`合并完成！\n原有轨迹: ${existingTrackCount} 条\n导入轨迹: ${targetData.sourceOfTruth.tracks.length} 条\n合并后: ${mergedTrackCount} 条\n新增: ${mergedTrackCount - existingTrackCount} 条`);
             }
 
             if (window.AndroidBridge && window.AndroidBridge.replaceNativeTracksJson) {

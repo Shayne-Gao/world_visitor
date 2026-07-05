@@ -114,7 +114,7 @@ class MainActivity : AppCompatActivity() {
         val status = runCatching { JSONObject(nativeTrackStore.getStatusJson()) }.getOrNull()
         val shouldTrack = status?.optBoolean("shouldTrack") ?: nativeTrackStore.shouldTrack()
         val isTracking = status?.optBoolean("isTracking") ?: false
-        if (shouldTrack && isTracking) return
+        if (!shouldTrack || isTracking) return
         startNativeTrackingService()
     }
 
@@ -375,6 +375,9 @@ class MainActivity : AppCompatActivity() {
                       const trackingPanel = document.getElementById('trackingStatusPanel');
                       const lastLat = Number(status.lastLat);
                       const lastLng = Number(status.lastLng);
+                      const hasFreshCurrentPoint = window.isFreshCurrentLocationTimestamp
+                        ? window.isFreshCurrentLocationTimestamp(status.lastPointAt)
+                        : false;
 
                       if (gpsText) gpsText.textContent = status.isTracking ? '自动记录中' : '已暂停记录';
                       if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
@@ -386,18 +389,19 @@ class MainActivity : AppCompatActivity() {
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
                       let markerUpdated = false;
-                      if (Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
+                      if (hasFreshCurrentPoint && Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
                         window.updateCurrentLocationMarker(lastLat, lastLng);
                         if (window.focusMapOnCurrentLocation) {
                           window.focusMapOnCurrentLocation(lastLat, lastLng, {
                             reason: 'native_status_last_point',
                             force: false,
-                            zoom: 16
+                            zoom: 16,
+                            timestamp: Number(status.lastPointAt) || Date.now()
                           });
                         }
                         markerUpdated = true;
                       } else if (!window.__fogStartupLocateInFlight && window.ensureStartupLocationMarker) {
-                        window.ensureStartupLocationMarker('native_status_missing_last_point');
+                        window.ensureStartupLocationMarker(hasFreshCurrentPoint ? 'native_status_marker_missing' : 'native_status_stale_last_point');
                       }
                       if (trackingPanel) {
                         if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
@@ -414,6 +418,7 @@ class MainActivity : AppCompatActivity() {
                           trackCount: String(status.trackCount || 0),
                           lastLat: String(status.lastLat),
                           lastLng: String(status.lastLng),
+                          lastPointFresh: String(hasFreshCurrentPoint),
                           markerUpdated: String(markerUpdated),
                           nativeDebugCount: String((status.debugEvents || []).length || 0)
                         });
