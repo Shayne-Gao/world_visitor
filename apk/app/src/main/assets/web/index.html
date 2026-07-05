@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.80 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.81 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -397,6 +397,29 @@ button:active { transform: scale(0.92); }
 
     // 全局当前位置标识点
     let currentLocationMarker = null;
+    function focusMapOnCurrentLocation(lat, lng, options = {}) {
+        const { reason = 'unknown', force = false, zoom = 16 } = options;
+        const alreadyFocused = !!window.__fogHasFocusedCurrentLocation;
+        if (alreadyFocused && !force) {
+            reportDebugEvent('web_focus_current_location_skipped', {
+                reason,
+                lat: String(lat),
+                lng: String(lng)
+            });
+            return false;
+        }
+        window.__fogHasFocusedCurrentLocation = true;
+        map.setView([lat, lng], zoom, { animate: !force });
+        reportDebugEvent('web_focus_current_location', {
+            reason,
+            lat: String(lat),
+            lng: String(lng),
+            force: String(force),
+            zoom: String(zoom)
+        });
+        return true;
+    }
+    window.focusMapOnCurrentLocation = focusMapOnCurrentLocation;
     function updateCurrentLocationMarker(lat, lng) {
         if (!currentLocationMarker) {
             const icon = L.divIcon({ className: 'gps-location-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
@@ -766,6 +789,8 @@ button:active { transform: scale(0.92); }
             'web_render_layers_done',
             'web_location_marker_updated',
             'web_startup_marker_request',
+            'web_focus_current_location',
+            'web_focus_current_location_skipped',
             'web_process_track_start',
             'web_process_track_no_new_area',
             'web_process_track_done',
@@ -1455,7 +1480,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.80',
+            appVersion: 'v0.1.81',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1559,9 +1584,12 @@ button:active { transform: scale(0.92); }
             if (!auto) updateMainBtnUI('locating');
             navigator.geolocation.getCurrentPosition(async pos => {
                 let lat = pos.coords.latitude, lng = pos.coords.longitude; 
-                if (auto && !currentLocationMarker) map.setView([lat, lng], 16);
-                else map.flyTo([lat, lng], 16); 
                 updateCurrentLocationMarker(lat, lng);
+                focusMapOnCurrentLocation(lat, lng, {
+                    reason: auto ? 'startup_locate' : 'manual_locate',
+                    force: !auto,
+                    zoom: 16
+                });
                 if (recordCurrentPoint) {
                     await processTrackAndSave([[lng, lat]], 'manual_locate');
                 }

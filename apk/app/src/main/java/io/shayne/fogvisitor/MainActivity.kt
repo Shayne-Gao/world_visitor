@@ -388,6 +388,13 @@ class MainActivity : AppCompatActivity() {
                       let markerUpdated = false;
                       if (Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
                         window.updateCurrentLocationMarker(lastLat, lastLng);
+                        if (window.focusMapOnCurrentLocation) {
+                          window.focusMapOnCurrentLocation(lastLat, lastLng, {
+                            reason: 'native_status_last_point',
+                            force: false,
+                            zoom: 16
+                          });
+                        }
                         markerUpdated = true;
                       } else if (!window.__fogStartupLocateInFlight && window.ensureStartupLocationMarker) {
                         window.ensureStartupLocationMarker('native_status_missing_last_point');
