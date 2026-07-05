@@ -381,6 +381,7 @@ class TrackingForegroundService : Service() {
     //#region debug-point apk-ui-storage-regression-service-reporter
     private fun reportDebugEvent(name: String, payload: Map<String, String>) {
         Log.d("FogVisitor", "$name $payload")
+        trackStore.appendTrackingDebugEvent(name, payload)
     }
     //#endregion
 }

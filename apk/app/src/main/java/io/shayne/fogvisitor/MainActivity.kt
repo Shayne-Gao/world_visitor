@@ -392,6 +392,9 @@ class MainActivity : AppCompatActivity() {
                         if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
                         else trackingPanel.classList.add('hidden');
                       }
+                      if (window.appendNativeTrackingDebugEvents) {
+                        window.appendNativeTrackingDebugEvents(status.debugEvents || []);
+                      }
                       if (window.reportDebugEvent) {
                         window.reportDebugEvent('web_native_status_refresh', {
                           isTracking: String(status.isTracking),
@@ -746,7 +749,7 @@ class MainActivity : AppCompatActivity() {
     //#region debug-point apk-ui-storage-regression-native-reporter
     private fun reportDebugEvent(name: String, payload: Map<String, String>) {
         Log.d("FogVisitor", "$name $payload")
+        nativeTrackStore.appendTrackingDebugEvent(name, payload)
     }
 
-    //#endregion
 }

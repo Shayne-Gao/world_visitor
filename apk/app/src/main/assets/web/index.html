@@ -32,6 +32,12 @@ button:active { transform: scale(0.92); }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
+#trackingDebugLog { width: min(78vw, 420px); max-height: 150px; overflow: auto; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 2px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
+#trackingDebugLog.hidden { display: none; }
+.tracking-debug-line { white-space: pre-wrap; line-height: 1.35; padding: 2px 0; }
+.tracking-debug-line .src { color: #93c5fd; }
+.tracking-debug-line .evt { color: #fcd34d; }
+.tracking-debug-line .time { color: #9ca3af; }
 #blockingOverlay { position: fixed; inset: 0; z-index: 12000; background: rgba(0,0,0,0.62); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; pointer-events: auto; }
 #blockingOverlay.active { display: flex; }
 #blockingOverlay .overlay-card { width: min(86vw, 420px); max-height: 70vh; overflow: auto; background: rgba(20,20,25,0.9); border: 1px solid rgba(255,255,255,0.16); border-radius: 14px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
@@ -182,7 +188,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.78 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.79 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -217,6 +223,7 @@ button:active { transform: scale(0.92); }
         <span>最近定位：<strong id="trackingLastPointText">暂无</strong></span>
         <span>累计轨迹段：<strong id="trackingSegmentCountText">0 段</strong></span>
     </div>
+    <div id="trackingDebugLog"></div>
 </div>
 
 <div id="topRightArea">
@@ -724,16 +731,73 @@ button:active { transform: scale(0.92); }
     //#region debug-point apk-ui-storage-regression-web-reporter
     const debugStartupMarks = { appStart: performance.now() };
     window.__fogLocalDebugLog = window.__fogLocalDebugLog || [];
+    window.__fogTrackingDebugSeenKeys = window.__fogTrackingDebugSeenKeys || new Set();
+    function shouldMirrorTrackingDebugEvent(event) {
+        return [
+            'web_native_status_refresh',
+            'web_native_hydration_start',
+            'web_native_hydration_done',
+            'web_native_archive_incremental_sync',
+            'web_render_layers_done',
+            'web_process_track_start',
+            'web_process_track_no_new_area',
+            'web_process_track_done',
+            'web_process_track_error'
+        ].includes(event);
+    }
+    function formatTrackingDebugPayload(payload = {}) {
+        const entries = Object.entries(payload || {}).filter(([, value]) => value !== undefined && value !== null && value !== '');
+        return entries.map(([key, value]) => `${key}=${value}`).join(' ');
+    }
+    function appendTrackingDebugLine(source, event, payload = {}, at = Date.now(), uniqueKey = null) {
+        const container = document.getElementById('trackingDebugLog');
+        if (!container) return;
+        const key = uniqueKey || `${source}:${event}:${at}:${JSON.stringify(payload)}`;
+        if (window.__fogTrackingDebugSeenKeys.has(key)) return;
+        window.__fogTrackingDebugSeenKeys.add(key);
+        if (window.__fogTrackingDebugSeenKeys.size > 400) {
+            window.__fogTrackingDebugSeenKeys = new Set(Array.from(window.__fogTrackingDebugSeenKeys).slice(-240));
+        }
+        container.classList.remove('hidden');
+        const line = document.createElement('div');
+        line.className = 'tracking-debug-line';
+        const time = new Date(at).toLocaleTimeString('zh-CN', { hour12: false });
+        const text = formatTrackingDebugPayload(payload);
+        line.innerHTML = `<span class="time">${time}</span> <span class="src">[${source}]</span> <span class="evt">${event}</span>${text ? ' ' + text : ''}`;
+        container.appendChild(line);
+        while (container.children.length > 120) {
+            container.removeChild(container.firstChild);
+        }
+        container.scrollTop = container.scrollHeight;
+    }
+    function appendNativeTrackingDebugEvents(events) {
+        if (!Array.isArray(events)) return;
+        events.forEach(item => {
+            if (!item || typeof item !== 'object') return;
+            appendTrackingDebugLine(
+                'native',
+                item.event || 'unknown',
+                item.payload || {},
+                Number(item.at) || Date.now(),
+                `native:${item.seq || 'na'}`
+            );
+        });
+    }
+    window.appendNativeTrackingDebugEvents = appendNativeTrackingDebugEvents;
     async function reportDebugEvent(event, payload = {}) {
         try {
-            window.__fogLocalDebugLog.push({
+            const entry = {
                 event,
                 payload,
                 at: Date.now(),
                 sinceAppStartMs: Math.round(performance.now() - debugStartupMarks.appStart)
-            });
+            };
+            window.__fogLocalDebugLog.push(entry);
             if (window.__fogLocalDebugLog.length > 400) {
                 window.__fogLocalDebugLog.splice(0, window.__fogLocalDebugLog.length - 400);
+            }
+            if (shouldMirrorTrackingDebugEvent(event)) {
+                appendTrackingDebugLine('web', event, payload, entry.at, `web:${event}:${entry.at}`);
             }
         } catch (e) {}
     }
@@ -1346,7 +1410,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.78',
+            appVersion: 'v0.1.79',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

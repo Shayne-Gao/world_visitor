@@ -47,6 +47,15 @@ class NativeTrackStore(private val context: Context) {
             val points = readDraftPoints().toMutableList()
             points.add(listOf(lng, lat))
             writeDraftPoints(points)
+            appendTrackingDebugEvent(
+                "native_draft_point_appended",
+                mapOf(
+                    "draftPointCount" to points.size.toString(),
+                    "lng" to lng.toString(),
+                    "lat" to lat.toString(),
+                    "accuracy" to (accuracy?.toString() ?: "null")
+                )
+            )
             updateStatus(
                 isTracking = true,
                 shouldTrack = true,
@@ -66,10 +75,26 @@ class NativeTrackStore(private val context: Context) {
     ): TrackRecord? {
         return runStore {
             val points = readDraftPoints()
+            appendTrackingDebugEvent(
+                "native_checkpoint_check",
+                mapOf(
+                    "source" to source,
+                    "draftPointCount" to points.size.toString(),
+                    "minPointCount" to minPointCount.toString()
+                )
+            )
             if (points.size < minPointCount) return@runStore null
             if (shouldDiscardCheckpoint(points)) {
                 val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
                 val lastPoint = seed.lastOrNull()
+                appendTrackingDebugEvent(
+                    "native_checkpoint_discarded",
+                    mapOf(
+                        "source" to source,
+                        "draftPointCount" to points.size.toString(),
+                        "seedCount" to seed.size.toString()
+                    )
+                )
                 writeDraftPoints(seed)
                 updateStatus(
                     isTracking = true,
@@ -91,6 +116,16 @@ class NativeTrackStore(private val context: Context) {
                 bbox = PolylineCodec.calculateBbox(points)
             )
             val persistResult = persistTrackCandidate(track)
+            appendTrackingDebugEvent(
+                "native_checkpoint_result",
+                mapOf(
+                    "source" to source,
+                    "draftPointCount" to points.size.toString(),
+                    "persisted" to persistResult.persisted.toString(),
+                    "reason" to persistResult.reason,
+                    "trackCount" to persistResult.trackCount.toString()
+                )
+            )
 
             val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
             val lastPoint = points.lastOrNull()
@@ -372,6 +407,7 @@ class NativeTrackStore(private val context: Context) {
                 put("archivePath", "room://fog_visitor_truth.db/track_segments")
                 put("draftPath", "room://fog_visitor_truth.db/draft_points")
                 put("hasRecoverableDraft", hasRecoverableDraft())
+                put("debugEvents", getTrackingDebugEventsJson())
             }
             putOptionalDouble(json, "lastLng", KEY_LAST_LNG_BITS)
             putOptionalDouble(json, "lastLat", KEY_LAST_LAT_BITS)
@@ -509,6 +545,21 @@ class NativeTrackStore(private val context: Context) {
         }.apply()
     }
 
+    fun appendTrackingDebugEvent(name: String, payload: Map<String, String>) {
+        val event = JSONObject().apply {
+            put("seq", nextTrackingDebugSeq())
+            put("event", name)
+            put("at", System.currentTimeMillis())
+            put("payload", JSONObject(payload))
+        }
+        synchronized(DEBUG_LOG_LOCK) {
+            trackingDebugEvents.addLast(event)
+            while (trackingDebugEvents.size > MAX_TRACKING_DEBUG_EVENTS) {
+                trackingDebugEvents.removeFirst()
+            }
+        }
+    }
+
     private fun putOptionalDouble(json: JSONObject, key: String, prefKey: String) {
         val value = readOptionalDouble(prefKey) ?: return
         json.put(key, value)
@@ -518,6 +569,12 @@ class NativeTrackStore(private val context: Context) {
         if (!prefs.contains(prefKey)) return null
         val value = Double.fromBits(prefs.getLong(prefKey, 0L))
         return if (value.isNaN()) null else value
+    }
+
+    private fun getTrackingDebugEventsJson(): JSONArray = synchronized(DEBUG_LOG_LOCK) {
+        JSONArray().apply {
+            trackingDebugEvents.forEach { put(JSONObject(it.toString())) }
+        }
     }
 
     private fun trackToJson(track: TrackRecord): JSONObject = JSONObject().apply {
@@ -602,6 +659,14 @@ class NativeTrackStore(private val context: Context) {
         val candidateCells = collectTrackCells(track)
         val hasNewExploredCells = candidateCells.any { it !in getExploredCells() }
         if (!hasNewExploredCells) {
+            appendTrackingDebugEvent(
+                "native_persist_rejected",
+                mapOf(
+                    "trackId" to track.id,
+                    "reason" to "already_explored",
+                    "candidateCells" to candidateCells.size.toString()
+                )
+            )
             return PersistTrackResult(
                 persisted = false,
                 reason = "already_explored",
@@ -617,6 +682,16 @@ class NativeTrackStore(private val context: Context) {
         }
         dao.upsertTrack(trackToPersist.toEntity())
         appendExploredCells(candidateCells)
+        appendTrackingDebugEvent(
+            "native_persist_result",
+            mapOf(
+                "trackId" to track.id,
+                "storedTrackId" to trackToPersist.id,
+                "reason" to if (trackToPersist.id == track.id) "persisted" else "merged_into_latest",
+                "candidateCells" to candidateCells.size.toString(),
+                "trackCount" to dao.getTrackCount().toString()
+            )
+        )
         return PersistTrackResult(
             persisted = true,
             reason = if (trackToPersist.id == track.id) "persisted" else "merged_into_latest",
@@ -924,5 +999,15 @@ class NativeTrackStore(private val context: Context) {
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000
         private const val MAX_ENCODED_PATH_LENGTH = 200_000
+        private const val MAX_TRACKING_DEBUG_EVENTS = 120
+        private val DEBUG_LOG_LOCK = Any()
+        private val trackingDebugEvents = ArrayDeque<JSONObject>()
+        private var trackingDebugSeq = 0L
+
+        @Synchronized
+        private fun nextTrackingDebugSeq(): Long {
+            trackingDebugSeq += 1L
+            return trackingDebugSeq
+        }
     }
 }
