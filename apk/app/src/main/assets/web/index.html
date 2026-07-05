@@ -29,9 +29,12 @@ button:active { transform: scale(0.92); }
 .stat-val.district { color: #facc15; }
 
 #trackingStatusPanel { position: absolute; bottom: 54px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.88); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 240px; }
+#trackingStatusPanel.compact #trackingDebugLog { display: none; }
 #trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
+#trackingStatusPanel .tracking-toolbar { width: 100%; display: flex; justify-content: flex-end; }
+#trackingStatusPanel .tracking-log-toggle { border: 0; background: rgba(255,255,255,0.08); color: #fff; border-radius: 999px; padding: 4px 8px; font-size: 11px; cursor: pointer; }
 #trackingDebugLog { width: min(78vw, 420px); max-height: 150px; overflow: auto; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 2px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
 #trackingDebugLog.hidden { display: none; }
 .tracking-debug-line { white-space: pre-wrap; line-height: 1.35; padding: 2px 0; }
@@ -188,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.79 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.80 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -222,6 +225,9 @@ button:active { transform: scale(0.92); }
         <span>状态：<strong id="trackingModeText">等待定位</strong></span>
         <span>最近定位：<strong id="trackingLastPointText">暂无</strong></span>
         <span>累计轨迹段：<strong id="trackingSegmentCountText">0 段</strong></span>
+    </div>
+    <div class="tracking-toolbar">
+        <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">缩小日志</button>
     </div>
     <div id="trackingDebugLog"></div>
 </div>
@@ -397,6 +403,24 @@ button:active { transform: scale(0.92); }
             currentLocationMarker = L.marker([lat, lng], {icon: icon, zIndexOffset: 1000}).addTo(map);
         } else {
             currentLocationMarker.setLatLng([lat, lng]);
+        }
+        reportDebugEvent('web_location_marker_updated', {
+            lat: String(lat),
+            lng: String(lng),
+            hasMarker: String(!!currentLocationMarker)
+        });
+    }
+    async function ensureStartupLocationMarker(reason = 'unknown') {
+        if (currentLocationMarker || !navigator.geolocation) return;
+        const lastAttemptAt = window.__fogStartupMarkerAttemptAt || 0;
+        if (Date.now() - lastAttemptAt < 5000) return;
+        window.__fogStartupMarkerAttemptAt = Date.now();
+        window.__fogStartupLocateInFlight = true;
+        reportDebugEvent('web_startup_marker_request', { reason });
+        try {
+            await locateMe({ auto: true, silent: true });
+        } finally {
+            window.__fogStartupLocateInFlight = false;
         }
     }
     
@@ -732,6 +756,7 @@ button:active { transform: scale(0.92); }
     const debugStartupMarks = { appStart: performance.now() };
     window.__fogLocalDebugLog = window.__fogLocalDebugLog || [];
     window.__fogTrackingDebugSeenKeys = window.__fogTrackingDebugSeenKeys || new Set();
+    window.__fogTrackingDebugCompact = window.__fogTrackingDebugCompact ?? false;
     function shouldMirrorTrackingDebugEvent(event) {
         return [
             'web_native_status_refresh',
@@ -739,6 +764,8 @@ button:active { transform: scale(0.92); }
             'web_native_hydration_done',
             'web_native_archive_incremental_sync',
             'web_render_layers_done',
+            'web_location_marker_updated',
+            'web_startup_marker_request',
             'web_process_track_start',
             'web_process_track_no_new_area',
             'web_process_track_done',
@@ -784,6 +811,24 @@ button:active { transform: scale(0.92); }
         });
     }
     window.appendNativeTrackingDebugEvents = appendNativeTrackingDebugEvents;
+    function updateTrackingDebugPanelMode() {
+        const panel = document.getElementById('trackingStatusPanel');
+        const btn = document.getElementById('trackingLogToggleBtn');
+        if (!panel || !btn) return;
+        panel.classList.toggle('compact', !!window.__fogTrackingDebugCompact);
+        btn.textContent = window.__fogTrackingDebugCompact ? '展开日志' : '缩小日志';
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('trackingLogToggleBtn');
+        if (btn && !btn.dataset.bound) {
+            btn.dataset.bound = '1';
+            btn.addEventListener('click', () => {
+                window.__fogTrackingDebugCompact = !window.__fogTrackingDebugCompact;
+                updateTrackingDebugPanelMode();
+            });
+        }
+        updateTrackingDebugPanelMode();
+    });
     async function reportDebugEvent(event, payload = {}) {
         try {
             const entry = {
@@ -1335,7 +1380,7 @@ button:active { transform: scale(0.92); }
             hydrateNativeRenderCacheAfterBoot();
             if (!window.__fogStartupLocateRequested && navigator.geolocation) {
                 window.__fogStartupLocateRequested = true;
-                setTimeout(() => locateMe({ auto: true, silent: true }), 600);
+                setTimeout(() => ensureStartupLocationMarker('init_data_bootstrap'), 600);
             }
             
             // 启动时设置地图中心为最后一次的记录点
@@ -1410,7 +1455,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.79',
+            appVersion: 'v0.1.80',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

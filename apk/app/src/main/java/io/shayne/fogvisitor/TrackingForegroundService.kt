@@ -219,6 +219,15 @@ class TrackingForegroundService : Service() {
     }
 
     private fun persistLocation(location: Location) {
+        reportDebugEvent(
+            "service_location_received",
+            mapOf(
+                "lat" to location.latitude.toString(),
+                "lng" to location.longitude.toString(),
+                "acc" to location.accuracy.toString(),
+                "time" to location.time.toString()
+            )
+        )
         if (!shouldPersistLocation(location)) return
         //#region debug-point apk-ui-storage-regression-service-location-result
         reportDebugEvent(
@@ -230,6 +239,10 @@ class TrackingForegroundService : Service() {
             )
         )
         //#endregion
+        reportDebugEvent(
+            "service_location_write_decision",
+            mapOf("decision" to "append_draft_and_checkpoint")
+        )
         trackStore.appendDraftPoint(
             lng = location.longitude,
             lat = location.latitude,
@@ -258,7 +271,14 @@ class TrackingForegroundService : Service() {
             )
             return false
         }
-        val previous = lastAcceptedLocation ?: return true
+        val previous = lastAcceptedLocation
+        if (previous == null) {
+            reportDebugEvent(
+                "service_location_first_accept",
+                mapOf("reason" to "no_previous_accepted_location")
+            )
+            return true
+        }
         val distance = location.distanceTo(previous)
         val elapsedMs = if (lastAcceptedAt > 0L) {
             System.currentTimeMillis() - lastAcceptedAt

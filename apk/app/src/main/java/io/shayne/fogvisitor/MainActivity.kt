@@ -385,8 +385,12 @@ class MainActivity : AppCompatActivity() {
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                      let markerUpdated = false;
                       if (Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
                         window.updateCurrentLocationMarker(lastLat, lastLng);
+                        markerUpdated = true;
+                      } else if (!window.__fogStartupLocateInFlight && window.ensureStartupLocationMarker) {
+                        window.ensureStartupLocationMarker('native_status_missing_last_point');
                       }
                       if (trackingPanel) {
                         if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
@@ -402,7 +406,9 @@ class MainActivity : AppCompatActivity() {
                           draftPointCount: String(status.draftPointCount || 0),
                           trackCount: String(status.trackCount || 0),
                           lastLat: String(status.lastLat),
-                          lastLng: String(status.lastLng)
+                          lastLng: String(status.lastLng),
+                          markerUpdated: String(markerUpdated),
+                          nativeDebugCount: String((status.debugEvents || []).length || 0)
                         });
                       }
                     } catch (e) {
