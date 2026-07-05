@@ -410,7 +410,11 @@ class NativeTrackStore(private val context: Context) {
             updateStatus(
                 isTracking = isRunning,
                 shouldTrack = shouldTrack,
-                draftPointCount = readDraftPoints().size
+                draftPointCount = readDraftPoints().size,
+                lastPointAt = prefs.getLong(KEY_LAST_POINT_AT, 0L),
+                lastLng = readOptionalDouble(KEY_LAST_LNG_BITS),
+                lastLat = readOptionalDouble(KEY_LAST_LAT_BITS),
+                lastAccuracy = readOptionalDouble(KEY_LAST_ACCURACY_BITS)
             )
         }
     }
@@ -420,7 +424,11 @@ class NativeTrackStore(private val context: Context) {
             updateStatus(
                 isTracking = if (shouldTrack) prefs.getBoolean(KEY_IS_TRACKING, false) else false,
                 shouldTrack = shouldTrack,
-                draftPointCount = readDraftPoints().size
+                draftPointCount = readDraftPoints().size,
+                lastPointAt = prefs.getLong(KEY_LAST_POINT_AT, 0L),
+                lastLng = readOptionalDouble(KEY_LAST_LNG_BITS),
+                lastLat = readOptionalDouble(KEY_LAST_LAT_BITS),
+                lastAccuracy = readOptionalDouble(KEY_LAST_ACCURACY_BITS)
             )
         }
     }

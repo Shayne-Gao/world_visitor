@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.os.Handler
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
@@ -33,6 +34,9 @@ class TrackingForegroundService : Service() {
     private var isExplicitStop = false
     private var lastAcceptedLocation: Location? = null
     private var lastAcceptedAt: Long = 0L
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private var locationWatchdog: Runnable? = null
+    private var lastLocationCallbackAt: Long = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -132,6 +136,7 @@ class TrackingForegroundService : Service() {
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
+                lastLocationCallbackAt = System.currentTimeMillis()
                 result.lastLocation?.let { location ->
                     persistLocation(location)
                 }
@@ -143,6 +148,7 @@ class TrackingForegroundService : Service() {
             locationCallback as LocationCallback,
             Looper.getMainLooper()
         )
+        startLocationWatchdog()
 
         fusedLocationClient.lastLocation.addOnSuccessListener { location ->
             val maxAgeMs = 2 * 60 * 1000L
@@ -153,6 +159,7 @@ class TrackingForegroundService : Service() {
     }
 
     private fun stopLocationUpdates(onStopped: (() -> Unit)? = null) {
+        stopLocationWatchdog()
         val callback = locationCallback
         if (callback == null) {
             trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
@@ -253,24 +260,88 @@ class TrackingForegroundService : Service() {
         }
         val previous = lastAcceptedLocation ?: return true
         val distance = location.distanceTo(previous)
+        val elapsedMs = if (lastAcceptedAt > 0L) {
+            System.currentTimeMillis() - lastAcceptedAt
+        } else {
+            Long.MAX_VALUE
+        }
         val effectiveMinDistance = maxOf(
             MIN_POINT_DISTANCE_METERS,
             minOf(
                 MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS,
-                maxOf(previous.accuracy, location.accuracy)
+                maxOf(previous.accuracy, location.accuracy) * ACCURACY_DISTANCE_FACTOR
             )
         )
         if (distance < effectiveMinDistance) {
+            val allowSlowMovementFallback =
+                elapsedMs >= MAX_POINT_IDLE_MS && distance >= MIN_SLOW_MOVEMENT_DISTANCE_METERS
+            if (allowSlowMovementFallback) {
+                reportDebugEvent(
+                    "service_location_accepted_slow_movement",
+                    mapOf(
+                        "distance" to distance.toString(),
+                        "elapsedMs" to elapsedMs.toString(),
+                        "threshold" to effectiveMinDistance.toString()
+                    )
+                )
+                return true
+            }
             reportDebugEvent(
                 "service_location_skipped_stationary",
                 mapOf(
                     "distance" to distance.toString(),
-                    "threshold" to effectiveMinDistance.toString()
+                    "threshold" to effectiveMinDistance.toString(),
+                    "elapsedMs" to elapsedMs.toString()
                 )
             )
             return false
         }
         return true
+    }
+
+    private fun startLocationWatchdog() {
+        stopLocationWatchdog()
+        locationWatchdog = object : Runnable {
+            override fun run() {
+                if (locationCallback == null) return
+                val now = System.currentTimeMillis()
+                if (now - lastLocationCallbackAt >= LOCATION_CALLBACK_STALL_MS) {
+                    reportDebugEvent(
+                        "service_location_watchdog_triggered",
+                        mapOf("idleMs" to (now - lastLocationCallbackAt).toString())
+                    )
+                    fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                        .addOnSuccessListener { location ->
+                            if (location != null) {
+                                reportDebugEvent(
+                                    "service_location_watchdog_fix_success",
+                                    mapOf(
+                                        "lat" to location.latitude.toString(),
+                                        "lng" to location.longitude.toString(),
+                                        "acc" to location.accuracy.toString()
+                                    )
+                                )
+                                persistLocation(location)
+                            }
+                        }
+                        .addOnFailureListener { error ->
+                            reportDebugEvent(
+                                "service_location_watchdog_fix_failed",
+                                mapOf("error" to (error.message ?: error.javaClass.simpleName))
+                            )
+                        }
+                }
+                watchdogHandler.postDelayed(this, WATCHDOG_TICK_MS)
+            }
+        }
+        lastLocationCallbackAt = System.currentTimeMillis()
+        watchdogHandler.postDelayed(locationWatchdog!!, WATCHDOG_TICK_MS)
+    }
+
+    private fun stopLocationWatchdog() {
+        locationWatchdog?.let { watchdogHandler.removeCallbacks(it) }
+        locationWatchdog = null
+        lastLocationCallbackAt = 0L
     }
 
     private fun restoreLastAcceptedLocation() {
@@ -298,8 +369,13 @@ class TrackingForegroundService : Service() {
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_ACCEPTED_ACCURACY_METERS = 35f
-        private const val MIN_POINT_DISTANCE_METERS = 20f
-        private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 45f
+        private const val MIN_POINT_DISTANCE_METERS = 8f
+        private const val MIN_SLOW_MOVEMENT_DISTANCE_METERS = 8f
+        private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 18f
+        private const val ACCURACY_DISTANCE_FACTOR = 0.6f
+        private const val MAX_POINT_IDLE_MS = 20_000L
+        private const val WATCHDOG_TICK_MS = 15_000L
+        private const val LOCATION_CALLBACK_STALL_MS = 20_000L
     }
 
     //#region debug-point apk-ui-storage-regression-service-reporter
