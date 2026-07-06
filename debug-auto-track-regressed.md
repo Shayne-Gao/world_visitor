@@ -26,3 +26,7 @@
 ## Working Conclusion
 - 自动记录回归的主根因是 `ensureAutoTrackingStarted()` 启动条件改错。
 - 日志框“消失”不是独立问题，而是同一个状态机回归带出来的结果。
+
+## Additional Finding
+- `clearArchive()`、`replaceTracksJson()`、`importParsedArchive()` 这几条“重置地图 / 加载地图 / 替换轨迹”的原生入口，会把 `isTracking` 和 `shouldTrack` 一起写成 `false`。
+- 这意味着用户只是重置地图或加载存档，也会顺手把正在进行的自动记录停掉，这属于不合理的状态耦合。

@@ -8,6 +8,13 @@
 
 ---
 
+## [v0.1.84] - 2026-07-06
+### 🧭 Reset / Load Map Keeps Tracking (重置/加载地图不再打断记录)
+* **修复“重置世界会把自动记录一起停掉”**：原生 `clearArchive()` 之前会把 `isTracking/shouldTrack` 一起清成 false，现在改为只清地图数据，不再顺手终止当前自动记录状态。
+* **修复“加载存档/替换轨迹会中断记录”**：`replaceTracksJson()` 和 `importParsedArchive()` 不再把 tracking 状态清零，导入覆盖、合并、撤销替换后，原本正在进行的自动记录可以继续保持。
+
+---
+
 ## [v0.1.83] - 2026-07-06
 ### 🔁 Auto Tracking Regression Fix (自动记录回归修复)
 * **修复 `v0.1.82` 的自动记录回归**：恢复“打开 App 后自动拉起原生自动记录服务”的行为，不再因为 `shouldTrack` 条件过严而导致服务根本不启动。

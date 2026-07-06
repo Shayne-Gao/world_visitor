@@ -269,6 +269,7 @@ class NativeTrackStore(private val context: Context) {
 
     fun replaceTracksJson(rawJson: String): String {
         return runStore {
+            val trackingState = currentTrackingState()
             val parsed = JSONArray(rawJson)
             val tracks = (0 until parsed.length()).map { index ->
                 trackFromJson(parsed.getJSONObject(index))
@@ -277,8 +278,8 @@ class NativeTrackStore(private val context: Context) {
             dao.clearDraftPoints()
             replaceExploredCells(tracks)
             updateStatus(
-                isTracking = false,
-                shouldTrack = false,
+                isTracking = trackingState.isTracking,
+                shouldTrack = trackingState.shouldTrack,
                 draftPointCount = 0,
                 lastPointAt = currentLivePointAt(),
                 lastLng = currentLiveLng(),
@@ -320,6 +321,7 @@ class NativeTrackStore(private val context: Context) {
 
     private fun importParsedArchive(parsed: JSONObject, merge: Boolean): String {
         return runStore {
+            val trackingState = currentTrackingState()
             val importedTracks = when {
                 parsed.optString("version") == "2.0.0" || parsed.optString("version") == "1.0.0" -> {
                     val tracks = parsed.getJSONObject("sourceOfTruth").getJSONArray("tracks")
@@ -353,8 +355,8 @@ class NativeTrackStore(private val context: Context) {
             }
             replaceExploredCells(finalTracks)
             updateStatus(
-                isTracking = false,
-                shouldTrack = false,
+                isTracking = trackingState.isTracking,
+                shouldTrack = trackingState.shouldTrack,
                 draftPointCount = if (merge) readDraftPoints().size else 0,
                 lastPointAt = currentLivePointAt(),
                 lastLng = currentLiveLng(),
@@ -477,17 +479,18 @@ class NativeTrackStore(private val context: Context) {
 
     fun clearArchive() {
         runStore {
+            val trackingState = currentTrackingState()
             dao.clearTracks()
             dao.clearDraftPoints()
             replaceExploredCells(emptyList())
             updateStatus(
-                isTracking = false,
-                shouldTrack = false,
+                isTracking = trackingState.isTracking,
+                shouldTrack = trackingState.shouldTrack,
                 draftPointCount = 0,
-                lastPointAt = 0L,
-                lastLng = null,
-                lastLat = null,
-                lastAccuracy = null
+                lastPointAt = currentLivePointAt(),
+                lastLng = currentLiveLng(),
+                lastLat = currentLiveLat(),
+                lastAccuracy = currentLiveAccuracy()
             )
         }
     }
@@ -578,6 +581,13 @@ class NativeTrackStore(private val context: Context) {
     private fun currentLiveLat(): Double? = readOptionalDouble(KEY_LAST_LAT_BITS)
 
     private fun currentLiveAccuracy(): Double? = readOptionalDouble(KEY_LAST_ACCURACY_BITS)
+
+    private data class TrackingState(val isTracking: Boolean, val shouldTrack: Boolean)
+
+    private fun currentTrackingState(): TrackingState = TrackingState(
+        isTracking = prefs.getBoolean(KEY_IS_TRACKING, false),
+        shouldTrack = prefs.getBoolean(KEY_SHOULD_TRACK, false)
+    )
 
     private fun getTrackingDebugEventsJson(): JSONArray = synchronized(DEBUG_LOG_LOCK) {
         JSONArray().apply {
