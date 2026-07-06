@@ -114,7 +114,7 @@ class MainActivity : AppCompatActivity() {
         val status = runCatching { JSONObject(nativeTrackStore.getStatusJson()) }.getOrNull()
         val shouldTrack = status?.optBoolean("shouldTrack") ?: nativeTrackStore.shouldTrack()
         val isTracking = status?.optBoolean("isTracking") ?: false
-        if (!shouldTrack || isTracking) return
+        if (shouldTrack && isTracking) return
         startNativeTrackingService()
     }
 
