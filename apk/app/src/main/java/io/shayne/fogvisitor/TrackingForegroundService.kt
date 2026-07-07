@@ -248,7 +248,7 @@ class TrackingForegroundService : Service() {
             lat = location.latitude,
             accuracy = location.accuracy.toDouble()
         )
-        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 4)
+        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 3)
         lastAcceptedLocation = location
         lastAcceptedAt = System.currentTimeMillis()
         //#region debug-point auto-tracking-broken-service-point-persisted

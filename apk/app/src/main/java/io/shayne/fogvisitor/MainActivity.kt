@@ -407,6 +407,9 @@ class MainActivity : AppCompatActivity() {
                         if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
                         else trackingPanel.classList.add('hidden');
                       }
+                      if (window.renderNativeDraftPreview) {
+                        window.renderNativeDraftPreview(status.draftPoints || []);
+                      }
                       if (window.appendNativeTrackingDebugEvents) {
                         window.appendNativeTrackingDebugEvents(status.debugEvents || []);
                       }
@@ -420,6 +423,7 @@ class MainActivity : AppCompatActivity() {
                           lastLng: String(status.lastLng),
                           lastPointFresh: String(hasFreshCurrentPoint),
                           markerUpdated: String(markerUpdated),
+                          draftPreviewPoints: String((status.draftPoints || []).length || 0),
                           nativeDebugCount: String((status.debugEvents || []).length || 0)
                         });
                       }

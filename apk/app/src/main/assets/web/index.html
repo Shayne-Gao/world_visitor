@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.84 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.85 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1586,7 +1586,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.84',
+            appVersion: 'v0.1.85',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1717,10 +1717,35 @@ button:active { transform: scale(0.92); }
     document.getElementById('locateBtn').onclick = () => locateMe({ recordCurrentPoint: true }); 
 
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
+    let nativeDraftPolyline = null;
     let autoTrackVisibilityHandler = null;
     let isPocketMode = false;
     let pocketDistanceKm = 0;
     let lastPocketCanvasDrawTime = 0;
+
+    function renderNativeDraftPreview(draftPoints) {
+        if (nativeDraftPolyline) {
+            map.removeLayer(nativeDraftPolyline);
+            nativeDraftPolyline = null;
+        }
+        if (!Array.isArray(draftPoints) || draftPoints.length < 2) return;
+        const latLngs = draftPoints
+            .map(point => {
+                const lng = Number(point?.[0]);
+                const lat = Number(point?.[1]);
+                return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+            })
+            .filter(Boolean);
+        if (latLngs.length < 2) return;
+        nativeDraftPolyline = L.polyline(latLngs, {
+            color: 'rgba(59,130,246,0.72)',
+            weight: 4,
+            lineCap: 'round',
+            dashArray: '4, 7',
+            interactive: false
+        }).addTo(map);
+    }
+    window.renderNativeDraftPreview = renderNativeDraftPreview;
     
     // 简易 Haversine 距离计算 (避免引入 Turf.js 运算开销)
     function calcDistanceKm(pt1, pt2) {

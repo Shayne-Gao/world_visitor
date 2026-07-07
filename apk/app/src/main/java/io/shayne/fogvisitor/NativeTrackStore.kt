@@ -400,6 +400,7 @@ class NativeTrackStore(private val context: Context) {
 
     fun getStatusJson(): String {
         return runStore {
+            val draftPoints = readDraftPoints()
             val json = JSONObject().apply {
                 put("isTracking", prefs.getBoolean(KEY_IS_TRACKING, false))
                 put("shouldTrack", prefs.getBoolean(KEY_SHOULD_TRACK, false))
@@ -409,6 +410,14 @@ class NativeTrackStore(private val context: Context) {
                 put("archivePath", "room://fog_visitor_truth.db/track_segments")
                 put("draftPath", "room://fog_visitor_truth.db/draft_points")
                 put("hasRecoverableDraft", hasRecoverableDraft())
+                put("draftPoints", JSONArray().apply {
+                    draftPoints.takeLast(MAX_STATUS_DRAFT_POINTS).forEach { point ->
+                        put(JSONArray().apply {
+                            put(point.getOrElse(0) { 0.0 })
+                            put(point.getOrElse(1) { 0.0 })
+                        })
+                    }
+                })
                 put("debugEvents", getTrackingDebugEventsJson())
             }
             putOptionalDouble(json, "lastLng", KEY_LAST_LNG_BITS)
@@ -1008,11 +1017,12 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_LAST_ACCURACY_BITS = "last_accuracy_bits"
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
-        private const val MIN_MOVEMENT_FOR_TRACK_METERS = 20.0
-        private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 45.0
+        private const val MIN_MOVEMENT_FOR_TRACK_METERS = 12.0
+        private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 28.0
         private const val CELL_SIZE_METERS = 20.0
         private const val MAX_MERGE_GAP_MS = 3 * 60 * 1000L
         private const val MAX_MERGE_DISTANCE_METERS = 35.0
+        private const val MAX_STATUS_DRAFT_POINTS = 24
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
         private const val MAX_IMPORT_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
         private const val MAX_IMPORT_TRACK_COUNT = 20_000
