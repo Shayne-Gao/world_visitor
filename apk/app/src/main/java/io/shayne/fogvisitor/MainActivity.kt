@@ -399,6 +399,9 @@ class MainActivity : AppCompatActivity() {
                             timestamp: Number(status.lastPointAt) || Date.now()
                           });
                         }
+                        if (window.checkLocalRegion) {
+                          window.checkLocalRegion(lastLat, lastLng);
+                        }
                         markerUpdated = true;
                       } else if (!window.__fogStartupLocateInFlight && window.ensureStartupLocationMarker) {
                         window.ensureStartupLocationMarker(hasFreshCurrentPoint ? 'native_status_marker_missing' : 'native_status_stale_last_point');
