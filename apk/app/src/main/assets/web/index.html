@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.86 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.87 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -720,6 +720,7 @@ button:active { transform: scale(0.92); }
             }
         }, 300);
     }
+    window.hydrateNativeRenderCacheAfterBoot = hydrateNativeRenderCacheAfterBoot;
 
     function isValidAppData(data) {
         if (!data || typeof data !== 'object') return false;
@@ -1068,12 +1069,21 @@ button:active { transform: scale(0.92); }
                         if (!nativeSummary) return localPrimary;
                         const localTrackCount = getTrackCountFromData(localPrimary);
                         const localLatestTimestamp = getLatestTrackTimestampFromData(localPrimary);
+                        reportDebugEvent('web_load_primary_cache_candidate', {
+                            localTrackCount: String(localTrackCount),
+                            localLatestTimestamp: String(localLatestTimestamp),
+                            nativeTrackCount: String(nativeSummary?.trackCount || 0),
+                            nativeLatestTimestamp: String(nativeSummary?.latestTimestamp || 0)
+                        });
                         const nativeMatchesLocal =
                             nativeSummary.trackCount === localTrackCount &&
                             (nativeSummary.latestTimestamp || 0) === localLatestTimestamp;
                         if (nativeMatchesLocal) {
                             window.__fogPendingNativeHydration = false;
                             window.__fogHydrateNativeInBackground = false;
+                            reportDebugEvent('web_load_primary_cache_hit', {
+                                trackCount: String(localTrackCount)
+                            });
                             return localPrimary;
                         }
                         const nativeAhead =
@@ -1082,6 +1092,10 @@ button:active { transform: scale(0.92); }
                         if (nativeAhead) {
                             window.__fogPendingNativeHydration = true;
                             window.__fogHydrateNativeInBackground = true;
+                            reportDebugEvent('web_load_primary_cache_stale', {
+                                localTrackCount: String(localTrackCount),
+                                nativeTrackCount: String(nativeSummary.trackCount || 0)
+                            });
                             return localPrimary;
                         }
                     }
@@ -1093,6 +1107,9 @@ button:active { transform: scale(0.92); }
                         if (nativePrimary?.__deferredNativeHydration) {
                             window.__fogPendingNativeHydration = true;
                             window.__fogHydrateNativeInBackground = false;
+                            reportDebugEvent('web_load_primary_native_deferred', {
+                                trackCount: String(nativePrimary?.sourceOfTruth?.tracks?.length || 0)
+                            });
                         }
                         if (nativePrimary && (isValidAppData(nativePrimary) || nativePrimary.fog)) return nativePrimary;
                     }
@@ -1148,9 +1165,10 @@ button:active { transform: scale(0.92); }
             if (window.AndroidBridge && location.protocol === 'file:') {
                 reportDebugEvent('web_save_data_cache_skipped', {
                     reason: 'native_truth_mode',
-                    trackCount: String(data?.sourceOfTruth?.tracks?.length || 0)
+                    trackCount: String(data?.sourceOfTruth?.tracks?.length || 0),
+                    allowNativeCacheWrite: String(!!window.__fogAllowNativeCacheWrite)
                 });
-                return;
+                if (!window.__fogAllowNativeCacheWrite) return;
             }
 
             const cloneStartedAt = performance.now();
@@ -1244,7 +1262,7 @@ button:active { transform: scale(0.92); }
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
             if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
-        if (!window.__fogTrackingDebugCompact && Array.isArray(appData?.sourceOfTruth?.tracks) && appData.sourceOfTruth.tracks.length > 0 && appData.sourceOfTruth.tracks.length <= 1500) {
+        if (!window.__fogTrackingDebugCompact && Array.isArray(appData?.sourceOfTruth?.tracks) && appData.sourceOfTruth.tracks.length > 0 && appData.sourceOfTruth.tracks.length <= 80) {
             const trackLines = appData.sourceOfTruth.tracks
                 .map(track => {
                     const coords = PolylineUtil.decode(track.encodedPath || '');
@@ -1541,15 +1559,20 @@ button:active { transform: scale(0.92); }
     }
     window.__fogApplyNormalizedArchiveToPage = async function(normalized, options = {}) {
         const showOverlay = options.showOverlay !== false;
+        const persistLocalCache = options.persistLocalCache !== false;
         const overlayToken = showOverlay ? showBlockingOverlay('正在应用数据...') : null;
         try {
             if (overlayToken) appendBlockingOverlayLine('应用存档数据', true, overlayToken);
             setAppData(normalized);
-            if (!(window.AndroidBridge && location.protocol === 'file:')) {
+            if (persistLocalCache) {
                 if (overlayToken) appendBlockingOverlayLine('写入本地缓存', true, overlayToken);
                 await localforage.setItem(STORAGE_KEY, normalized);
                 await localforage.setItem(SNAPSHOT_KEY, normalized);
                 await DataManager.clearDiagnostic();
+                reportDebugEvent('web_apply_normalized_cache_saved', {
+                    trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
+                    nativeTruthMode: String(isNativeTruthMode())
+                });
             }
             if (overlayToken) appendBlockingOverlayLine('更新统计信息', true, overlayToken);
             updateStatsUI();
@@ -1585,7 +1608,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.86',
+            appVersion: 'v0.1.87',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

@@ -346,18 +346,16 @@ class MainActivity : AppCompatActivity() {
                         summary.trackCount > currentTrackCount ||
                         summary.latestTimestamp > currentLatestTimestamp;
                       if (!advanced || !newerThanPage || window.__fogEditModeActive) return;
-                      const rawArchive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
-                      const normalized = window.__fogNormalizeNativeArchiveForWeb
-                        ? window.__fogNormalizeNativeArchiveForWeb(rawArchive)
-                        : rawArchive;
-                      if (window.__fogApplyNormalizedArchiveToPage) {
-                        await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: false });
-                        if (window.reportDebugEvent) {
-                          window.reportDebugEvent('web_native_archive_incremental_sync', {
-                            trackCount: String(summary.trackCount),
-                            latestTimestamp: String(summary.latestTimestamp)
-                          });
-                        }
+                      window.__fogPendingNativeHydration = true;
+                      window.__fogHydrateNativeInBackground = true;
+                      if (window.reportDebugEvent) {
+                        window.reportDebugEvent('web_native_archive_incremental_sync_scheduled', {
+                          trackCount: String(summary.trackCount),
+                          latestTimestamp: String(summary.latestTimestamp)
+                        });
+                      }
+                      if (window.hydrateNativeRenderCacheAfterBoot) {
+                        window.hydrateNativeRenderCacheAfterBoot();
                       }
                     } catch (e) {
                       console.warn('Failed to sync incremental native archive', e);
