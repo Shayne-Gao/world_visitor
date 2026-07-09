@@ -229,6 +229,7 @@ class TrackingForegroundService : Service() {
             )
         )
         if (!shouldPersistLocation(location)) return
+        maybeResetDraftAfterLongGap()
         //#region debug-point apk-ui-storage-regression-service-location-result
         reportDebugEvent(
             "service_location_result",
@@ -319,6 +320,22 @@ class TrackingForegroundService : Service() {
         return true
     }
 
+    private fun maybeResetDraftAfterLongGap() {
+        if (lastAcceptedAt <= 0L) return
+        val elapsedMs = System.currentTimeMillis() - lastAcceptedAt
+        if (elapsedMs <= MAX_TRACK_GAP_MS) return
+        val existingDraftCount = trackStore.readDraftPoints().size
+        if (existingDraftCount <= 0) return
+        trackStore.clearDraft()
+        reportDebugEvent(
+            "service_track_gap_reset",
+            mapOf(
+                "elapsedMs" to elapsedMs.toString(),
+                "clearedDraftCount" to existingDraftCount.toString()
+            )
+        )
+    }
+
     private fun startLocationWatchdog() {
         stopLocationWatchdog()
         locationWatchdog = object : Runnable {
@@ -394,6 +411,7 @@ class TrackingForegroundService : Service() {
         private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 18f
         private const val ACCURACY_DISTANCE_FACTOR = 0.6f
         private const val MAX_POINT_IDLE_MS = 20_000L
+        private const val MAX_TRACK_GAP_MS = 120_000L
         private const val WATCHDOG_TICK_MS = 15_000L
         private const val LOCATION_CALLBACK_STALL_MS = 20_000L
     }
