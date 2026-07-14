@@ -346,14 +346,27 @@ class MainActivity : AppCompatActivity() {
                         summary.trackCount > currentTrackCount ||
                         summary.latestTimestamp > currentLatestTimestamp;
                       if (!advanced || !newerThanPage || window.__fogEditModeActive) return;
-                      window.__fogPendingNativeHydration = true;
-                      window.__fogHydrateNativeInBackground = true;
+                      const canApplyIncrementally =
+                        currentTrackCount > 0 &&
+                        summary.trackCount >= currentTrackCount &&
+                        (summary.trackCount - currentTrackCount) <= 4 &&
+                        typeof window.syncNativeArchiveIncrementally === 'function';
                       if (window.reportDebugEvent) {
                         window.reportDebugEvent('web_native_archive_incremental_sync_scheduled', {
                           trackCount: String(summary.trackCount),
-                          latestTimestamp: String(summary.latestTimestamp)
+                          latestTimestamp: String(summary.latestTimestamp),
+                          currentTrackCount: String(currentTrackCount),
+                          currentLatestTimestamp: String(currentLatestTimestamp),
+                          incremental: String(canApplyIncrementally)
                         });
                       }
+                      if (canApplyIncrementally) {
+                        await window.syncNativeArchiveIncrementally(summary, currentLatestTimestamp);
+                        window.__fogLastNativeArchiveSummary = summary;
+                        return;
+                      }
+                      window.__fogPendingNativeHydration = true;
+                      window.__fogHydrateNativeInBackground = true;
                       if (window.hydrateNativeRenderCacheAfterBoot) {
                         window.hydrateNativeRenderCacheAfterBoot();
                       }

@@ -452,6 +452,17 @@ class NativeTrackStore(private val context: Context) {
         }
     }
 
+    fun getArchiveTracksSinceJson(afterTimestamp: Long): String {
+        return runStore {
+            val tracks = dao.getTracksAfter(afterTimestamp).map { it.toModel() }
+            JSONArray().apply {
+                tracks.forEach { track ->
+                    put(trackToJson(track))
+                }
+            }.toString()
+        }
+    }
+
     fun markTrackingRunning(isRunning: Boolean, shouldTrack: Boolean = prefs.getBoolean(KEY_SHOULD_TRACK, false)) {
         runStore {
             updateStatus(

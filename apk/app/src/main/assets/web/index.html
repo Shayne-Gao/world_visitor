@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.88 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.89 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -685,12 +685,16 @@ button:active { transform: scale(0.92); }
         if (!window.__fogPendingNativeHydration) return;
         window.__fogPendingNativeHydration = false;
         const hydrateStartedAt = performance.now();
-        const runInBackground = !!window.__fogHydrateNativeInBackground;
+        const requestedBackground = !!window.__fogHydrateNativeInBackground;
+        const visibleNow = document.visibilityState === 'visible';
+        const runInBackground = requestedBackground && !visibleNow;
         const overlayToken = runInBackground ? null : showBlockingOverlay('正在准备地图数据...');
         if (overlayToken) appendBlockingOverlayLine('读取原生存档', true, overlayToken);
         reportDebugEvent('web_native_hydration_start', {
             trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0),
-            background: String(runInBackground)
+            background: String(runInBackground),
+            requestedBackground: String(requestedBackground),
+            visible: String(visibleNow)
         });
         setTimeout(async () => {
             try {
@@ -710,7 +714,8 @@ button:active { transform: scale(0.92); }
                 reportDebugEvent('web_native_hydration_done', {
                     durationMs: Math.round(performance.now() - hydrateStartedAt),
                     trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
-                    background: String(runInBackground)
+                    background: String(runInBackground),
+                    visible: String(visibleNow)
                 });
             } catch (e) {
                 reportDebugEvent('web_native_hydration_error', { error: String(e) });
@@ -735,6 +740,12 @@ button:active { transform: scale(0.92); }
         return JSON.parse(JSON.stringify(data));
     }
 
+    async function persistAppDataToLocalCache(data) {
+        await localforage.setItem(STORAGE_KEY, data);
+        await localforage.setItem(SNAPSHOT_KEY, data);
+        await DataManager.clearDiagnostic();
+    }
+
     function setAppData(nextData) {
         appData = nextData;
         window.appData = appData;
@@ -757,6 +768,83 @@ button:active { transform: scale(0.92); }
     function hasRenderableMapCache(data) {
         return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
     }
+
+    function upsertTrackIntoSourceOfTruth(track) {
+        if (!track?.id) return;
+        const existingTracks = Array.isArray(appData?.sourceOfTruth?.tracks) ? appData.sourceOfTruth.tracks : [];
+        const existingIndex = existingTracks.findIndex(item => item?.id === track.id);
+        if (existingIndex >= 0) existingTracks.splice(existingIndex, 1, track);
+        else existingTracks.push(track);
+        existingTracks.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
+    }
+
+    function applyTrackToRenderCache(track) {
+        const coords = PolylineUtil.decode(track?.encodedPath || '');
+        if (!coords || coords.length === 0) return false;
+        const brushRadiusKm = Number(track?.brushRadiusKm) || 0.02;
+        let mask;
+        if (coords.length < 2) mask = turf.buffer(turf.point(coords[0]), brushRadiusKm, { units: 'kilometers' });
+        else mask = turf.buffer(turf.lineString(coords), brushRadiusKm, { units: 'kilometers' });
+        mask = turf.truncate(turf.simplify(mask, { tolerance: 0.0001, highQuality: false }), { precision: 5 });
+        const currentFog = appData?.renderCache?.globalFog || turf.polygon(worldCoords);
+        const newFog = turf.difference(currentFog, mask);
+        if (!newFog) return false;
+        appData.renderCache.globalFog = newFog;
+        appData.renderCache.globalExplored = appData.renderCache.globalExplored
+            ? turf.union(appData.renderCache.globalExplored, mask)
+            : mask;
+        const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
+        appData.renderCache.dailyExplored[dateKey] = appData.renderCache.dailyExplored[dateKey]
+            ? turf.union(appData.renderCache.dailyExplored[dateKey], mask)
+            : mask;
+        appData.metadata.totalAreaKm2 = calcTotalArea();
+        return true;
+    }
+
+    async function applyNativeTrackIncrementally(track) {
+        upsertTrackIntoSourceOfTruth(track);
+        applyTrackToRenderCache(track);
+        await yieldToMainThread();
+    }
+
+    async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp) {
+        const visibleNow = document.visibilityState === 'visible';
+        const overlayToken = visibleNow ? showBlockingOverlay('正在同步新增轨迹...') : null;
+        const startedAt = performance.now();
+        reportDebugEvent('web_native_archive_incremental_apply_start', {
+            currentLatestTimestamp: String(currentLatestTimestamp),
+            summaryTrackCount: String(summary?.trackCount || 0),
+            visible: String(visibleNow)
+        });
+        try {
+            if (overlayToken) appendBlockingOverlayLine('读取新增轨迹', true, overlayToken);
+            const raw = AndroidBridge.getNativeArchiveTracksSince(currentLatestTimestamp);
+            const tracks = JSON.parse(raw || '[]');
+            if (overlayToken) appendBlockingOverlayLine(`应用新增轨迹 0/${tracks.length}`, true, overlayToken);
+            for (let index = 0; index < tracks.length; index += 1) {
+                await applyNativeTrackIncrementally(tracks[index]);
+                if (overlayToken) updateBlockingOverlayLastLine(`应用新增轨迹 ${index + 1}/${tracks.length}`, overlayToken);
+            }
+            if (overlayToken) appendBlockingOverlayLine('刷新地图图层', true, overlayToken);
+            updateStatsUI();
+            buildTimeline();
+            renderLayers();
+            await persistAppDataToLocalCache(appData);
+            reportDebugEvent('web_native_archive_incremental_apply_done', {
+                durationMs: Math.round(performance.now() - startedAt),
+                appliedTrackCount: String(tracks.length),
+                visible: String(visibleNow)
+            });
+        } catch (error) {
+            reportDebugEvent('web_native_archive_incremental_apply_error', {
+                error: String(error)
+            });
+            throw error;
+        } finally {
+            if (overlayToken) clearBlockingOverlay(overlayToken);
+        }
+    }
+    window.syncNativeArchiveIncrementally = syncNativeArchiveIncrementally;
 
     function buildPortableArchiveData(data) {
         const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
@@ -1608,7 +1696,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.88',
+            appVersion: 'v0.1.89',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

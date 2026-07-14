@@ -12,6 +12,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_segments ORDER BY timestamp ASC")
     fun getAllTracks(): List<TrackSegmentEntity>
 
+    @Query("SELECT * FROM track_segments WHERE timestamp > :afterTimestamp ORDER BY timestamp ASC")
+    fun getTracksAfter(afterTimestamp: Long): List<TrackSegmentEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertTrack(track: TrackSegmentEntity)
 

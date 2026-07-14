@@ -76,6 +76,9 @@ class JsBridge(
     fun getNativeArchiveTracks(): String = trackStore.getArchiveTracksJson()
 
     @JavascriptInterface
+    fun getNativeArchiveTracksSince(afterTimestamp: Long): String = trackStore.getArchiveTracksSinceJson(afterTimestamp)
+
+    @JavascriptInterface
     fun clearNativeArchive() {
         trackStore.clearArchive()
     }
