@@ -126,7 +126,10 @@ class TrackingForegroundService : Service() {
             stopSelf()
             return
         }
-        if (locationCallback != null) return
+        if (locationCallback != null) {
+            requestCurrentLocationProbe("existing_callback")
+            return
+        }
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
             .setMinUpdateDistanceMeters(0f)
@@ -149,13 +152,56 @@ class TrackingForegroundService : Service() {
             Looper.getMainLooper()
         )
         startLocationWatchdog()
+        requestCurrentLocationProbe("start_location_updates")
 
         fusedLocationClient.lastLocation.addOnSuccessListener { location ->
             val maxAgeMs = 2 * 60 * 1000L
             if (location != null && System.currentTimeMillis() - location.time <= maxAgeMs) {
                 persistLocation(location)
+            } else {
+                reportDebugEvent(
+                    "service_last_location_ignored",
+                    mapOf(
+                        "reason" to if (location == null) "null" else "stale",
+                        "ageMs" to if (location == null) "null" else (System.currentTimeMillis() - location.time).toString()
+                    )
+                )
             }
         }
+    }
+
+    private fun requestCurrentLocationProbe(reason: String) {
+        if (!hasLocationPermission()) return
+        reportDebugEvent("service_current_location_probe_start", mapOf("reason" to reason))
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location ->
+                if (location == null) {
+                    reportDebugEvent(
+                        "service_current_location_probe_empty",
+                        mapOf("reason" to reason)
+                    )
+                    return@addOnSuccessListener
+                }
+                reportDebugEvent(
+                    "service_current_location_probe_success",
+                    mapOf(
+                        "reason" to reason,
+                        "lat" to location.latitude.toString(),
+                        "lng" to location.longitude.toString(),
+                        "acc" to location.accuracy.toString()
+                    )
+                )
+                persistLocation(location)
+            }
+            .addOnFailureListener { error ->
+                reportDebugEvent(
+                    "service_current_location_probe_failed",
+                    mapOf(
+                        "reason" to reason,
+                        "error" to (error.message ?: error.javaClass.simpleName)
+                    )
+                )
+            }
     }
 
     private fun stopLocationUpdates(onStopped: (() -> Unit)? = null) {

@@ -89,6 +89,15 @@ class MainActivity : AppCompatActivity() {
         ensureAutoTrackingStarted()
     }
 
+    override fun onResume() {
+        super.onResume()
+        reportDebugEvent(
+            "native_activity_resume",
+            mapOf("hasFine" to hasForegroundLocationPermission().toString())
+        )
+        ensureAutoTrackingStarted()
+    }
+
     private fun requestRuntimePermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
