@@ -345,7 +345,7 @@ class MainActivity : AppCompatActivity() {
                       const canApplyIncrementally =
                         currentTrackCount > 0 &&
                         summary.trackCount >= currentTrackCount &&
-                        (summary.trackCount - currentTrackCount) <= 4 &&
+                        (summary.trackCount - currentTrackCount) <= (window.__fogMaxNativeIncrementalTracks || 50) &&
                         typeof window.syncNativeArchiveIncrementally === 'function';
                       if (window.reportDebugEvent) {
                         window.reportDebugEvent('web_native_archive_incremental_sync_scheduled', {
@@ -353,7 +353,8 @@ class MainActivity : AppCompatActivity() {
                           latestTimestamp: String(summary.latestTimestamp),
                           currentTrackCount: String(currentTrackCount),
                           currentLatestTimestamp: String(currentLatestTimestamp),
-                          incremental: String(canApplyIncrementally)
+                          incremental: String(canApplyIncrementally),
+                          threshold: String(window.__fogMaxNativeIncrementalTracks || 50)
                         });
                       }
                       if (canApplyIncrementally) {

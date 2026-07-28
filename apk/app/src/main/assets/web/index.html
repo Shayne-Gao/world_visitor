@@ -191,7 +191,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.90 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.91 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -769,6 +769,9 @@ button:active { transform: scale(0.92); }
         return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
     }
 
+    const MAX_NATIVE_INCREMENTAL_TRACKS = 50;
+    window.__fogMaxNativeIncrementalTracks = MAX_NATIVE_INCREMENTAL_TRACKS;
+
     function upsertTrackIntoSourceOfTruth(track) {
         if (!track?.id) return;
         const existingTracks = Array.isArray(appData?.sourceOfTruth?.tracks) ? appData.sourceOfTruth.tracks : [];
@@ -807,14 +810,15 @@ button:active { transform: scale(0.92); }
         await yieldToMainThread();
     }
 
-    async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp) {
+    async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp, options = {}) {
         const visibleNow = document.visibilityState === 'visible';
-        const overlayToken = visibleNow ? showBlockingOverlay('正在同步新增轨迹...') : null;
+        const overlayToken = visibleNow ? showBlockingOverlay(options.title || '正在同步新增轨迹...') : null;
         const startedAt = performance.now();
         reportDebugEvent('web_native_archive_incremental_apply_start', {
             currentLatestTimestamp: String(currentLatestTimestamp),
             summaryTrackCount: String(summary?.trackCount || 0),
-            visible: String(visibleNow)
+            visible: String(visibleNow),
+            reason: String(options.reason || 'unknown')
         });
         try {
             if (overlayToken) appendBlockingOverlayLine('读取新增轨迹', true, overlayToken);
@@ -833,7 +837,8 @@ button:active { transform: scale(0.92); }
             reportDebugEvent('web_native_archive_incremental_apply_done', {
                 durationMs: Math.round(performance.now() - startedAt),
                 appliedTrackCount: String(tracks.length),
-                visible: String(visibleNow)
+                visible: String(visibleNow),
+                reason: String(options.reason || 'unknown')
             });
         } catch (error) {
             reportDebugEvent('web_native_archive_incremental_apply_error', {
@@ -845,6 +850,38 @@ button:active { transform: scale(0.92); }
         }
     }
     window.syncNativeArchiveIncrementally = syncNativeArchiveIncrementally;
+
+    async function flushPendingNativeIncrementalSync() {
+        const pending = window.__fogPendingNativeIncrementalSync;
+        if (!pending) return false;
+        window.__fogPendingNativeIncrementalSync = null;
+        try {
+            reportDebugEvent('web_native_archive_incremental_catchup_start', {
+                reason: String(pending.reason || 'unknown'),
+                afterTimestamp: String(pending.afterTimestamp || 0),
+                summaryTrackCount: String(pending.summary?.trackCount || 0)
+            });
+            await syncNativeArchiveIncrementally(pending.summary, pending.afterTimestamp || 0, {
+                reason: pending.reason || 'cold_start_cache_stale',
+                title: '正在补齐新增轨迹...'
+            });
+            window.__fogPendingNativeHydration = false;
+            window.__fogLastNativeArchiveSummary = pending.summary;
+            reportDebugEvent('web_native_archive_incremental_catchup_done', {
+                reason: String(pending.reason || 'unknown')
+            });
+            return true;
+        } catch (error) {
+            window.__fogPendingNativeHydration = true;
+            window.__fogHydrateNativeInBackground = true;
+            reportDebugEvent('web_native_archive_incremental_catchup_failed', {
+                reason: String(pending.reason || 'unknown'),
+                error: String(error)
+            });
+            return false;
+        }
+    }
+    window.flushPendingNativeIncrementalSync = flushPendingNativeIncrementalSync;
 
     function buildPortableArchiveData(data) {
         const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
@@ -1178,11 +1215,25 @@ button:active { transform: scale(0.92); }
                             nativeSummary.trackCount > localTrackCount ||
                             nativeSummary.latestTimestamp > localLatestTimestamp;
                         if (nativeAhead) {
-                            window.__fogPendingNativeHydration = true;
+                            const addedTrackCount = Math.max(0, (nativeSummary.trackCount || 0) - localTrackCount);
+                            const canIncrementallyCatchUp =
+                                localTrackCount > 0 &&
+                                addedTrackCount > 0 &&
+                                addedTrackCount <= MAX_NATIVE_INCREMENTAL_TRACKS &&
+                                nativeSummary.latestTimestamp > localLatestTimestamp;
+                            window.__fogPendingNativeHydration = !canIncrementallyCatchUp;
                             window.__fogHydrateNativeInBackground = true;
+                            window.__fogPendingNativeIncrementalSync = canIncrementallyCatchUp ? {
+                                summary: nativeSummary,
+                                afterTimestamp: localLatestTimestamp,
+                                reason: 'cold_start_cache_stale'
+                            } : null;
                             reportDebugEvent('web_load_primary_cache_stale', {
                                 localTrackCount: String(localTrackCount),
-                                nativeTrackCount: String(nativeSummary.trackCount || 0)
+                                nativeTrackCount: String(nativeSummary.trackCount || 0),
+                                addedTrackCount: String(addedTrackCount),
+                                incremental: String(canIncrementallyCatchUp),
+                                threshold: String(MAX_NATIVE_INCREMENTAL_TRACKS)
                             });
                             return localPrimary;
                         }
@@ -1613,7 +1664,8 @@ button:active { transform: scale(0.92); }
             buildTimeline();
             if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
             renderLayers();
-            hydrateNativeRenderCacheAfterBoot();
+            const caughtUpIncrementally = await flushPendingNativeIncrementalSync();
+            if (!caughtUpIncrementally) hydrateNativeRenderCacheAfterBoot();
             if (!window.__fogStartupLocateRequested && navigator.geolocation) {
                 window.__fogStartupLocateRequested = true;
                 setTimeout(() => ensureStartupLocationMarker('init_data_bootstrap'), 600);
@@ -1696,7 +1748,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.90',
+            appVersion: 'v0.1.91',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
