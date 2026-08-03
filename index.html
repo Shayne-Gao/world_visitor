@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">web-v0.1.74 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.75 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -393,10 +393,10 @@ button:active { transform: scale(0.92); }
         satellite: {
             ArcGIS: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Tiles &copy; Esri'}),
             GoogleSatellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-            // 重构 Google 混合地图：底层使用无偏移卫星图，上层叠加纯透明路网标注层 (使用定制图层完美同步缩放动画)
+            // Google 混合地图：卫星和路网/标注都保持 Google 原始瓦片坐标，不再对标签层做 GCJ 偏移。
             GoogleHybrid: L.layerGroup([
                 L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {maxZoom: 20, attribution: '&copy; Google'}),
-                new L.TileLayer.HybridLabel('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
+                L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}', {maxZoom: 20})
             ])
         },
         street: {
@@ -793,7 +793,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'web-v0.1.74',
+            appVersion: 'web-v0.1.75',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

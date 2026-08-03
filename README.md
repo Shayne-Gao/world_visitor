@@ -65,6 +65,13 @@
 
 ---
 
+## [web-v0.1.75] - 2026-08-03
+### 🛰️ Google Hybrid Layer Alignment (谷歌混合图层对齐)
+* **修复 Web 版 Google 混合模式内街道/卫星错位**：混合模式的路网/标注层不再使用自定义 GCJ 像素偏移，改回 Google 原始瓦片坐标。
+* **Google 系列统一保持 WGS 对齐**：Google 卫星、街道、混合模式均不参与高德 GCJ 偏移；高德地图仍单独启用 GCJ 偏移。
+
+---
+
 ## [web-v0.1.74] - 2026-08-03
 ### 🗺️ Google Street WGS Alignment (谷歌街道坐标对齐)
 * **修复 Web 版 Google 街道偏移**：Google 街道不再参与 GCJ-02 全局投影偏移，保持与 Google 卫星/真实经纬度一致。
