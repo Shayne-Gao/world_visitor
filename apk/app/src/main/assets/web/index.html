@@ -61,7 +61,7 @@ button:active { transform: scale(0.92); }
 #topRightArea { position: absolute; top: 46px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
 .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
-#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
+#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 132px; }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.95 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.96 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -257,6 +257,9 @@ button:active { transform: scale(0.92); }
             <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出存档</button>
             <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 恢复存档 (覆盖)</button>
             <button id="mergeBtn" class="sub-btn"><i class="fa-solid fa-code-merge"></i> 合并存档 (追加)</button>
+            <button id="cloudConfigBtn" class="sub-btn"><i class="fa-solid fa-cloud"></i> 云存档配置</button>
+            <button id="cloudUploadBtn" class="sub-btn"><i class="fa-solid fa-cloud-arrow-up"></i> 上传云存档</button>
+            <button id="cloudDownloadBtn" class="sub-btn"><i class="fa-solid fa-cloud-arrow-down"></i> 下载云存档</button>
             <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
             <input type="file" id="importFile" style="display:none;">
         </div>
@@ -1777,7 +1780,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.95',
+            appVersion: 'v0.1.96',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -2458,6 +2461,92 @@ button:active { transform: scale(0.92); }
     });
 
     document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; window.appData = appData; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
+
+    function summarizeArchiveForConfirm(data) {
+        const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
+        const latest = tracks.reduce((max, track) => Math.max(max, Number(track?.timestamp || 0)), 0);
+        const latestText = latest ? new Date(latest).toLocaleString('zh-CN', { hour12: false }) : '暂无';
+        const area = Number(data?.metadata?.totalAreaKm2 || 0);
+        return {
+            trackCount: tracks.length,
+            latestText,
+            areaText: `${area.toFixed(3)} km²`,
+            version: data?.version || '未知'
+        };
+    }
+
+    function buildArchiveConfirmText(sourceLabel, targetData) {
+        const local = summarizeArchiveForConfirm(appData);
+        const incoming = summarizeArchiveForConfirm(targetData);
+        return [
+            `${sourceLabel} 已读取。请选择导入方式：`,
+            '',
+            `当前本地：${local.trackCount} 段 / 最新 ${local.latestText} / 面积 ${local.areaText}`,
+            `导入存档：${incoming.trackCount} 段 / 最新 ${incoming.latestText} / 面积 ${incoming.areaText} / Schema ${incoming.version}`,
+            '',
+            '输入 MERGE：合并导入（推荐，不删除当前数据）',
+            '输入 OVERWRITE：覆盖当前数据（危险，需要再次确认）',
+            '直接取消或留空：不导入'
+        ].join('\n');
+    }
+
+    function askImportDecision(sourceLabel, targetData) {
+        const choice = prompt(buildArchiveConfirmText(sourceLabel, targetData), 'MERGE');
+        const normalized = String(choice || '').trim().toUpperCase();
+        if (!normalized) return null;
+        if (normalized === 'MERGE') return 'merge';
+        if (normalized === 'OVERWRITE') {
+            const local = summarizeArchiveForConfirm(appData);
+            const incoming = summarizeArchiveForConfirm(targetData);
+            const ok = confirm([
+                '你选择了覆盖当前存档。',
+                '',
+                `当前本地将被替换：${local.trackCount} 段 / 最新 ${local.latestText}`,
+                `覆盖来源：${incoming.trackCount} 段 / 最新 ${incoming.latestText}`,
+                '',
+                '覆盖不可直接撤销。确认覆盖吗？'
+            ].join('\n'));
+            return ok ? 'overwrite' : null;
+        }
+        alert('未识别输入，已取消导入。');
+        return null;
+    }
+
+    async function applyArchiveImport(targetData, mode, sourceLabel = '存档') {
+        if (!targetData) throw new Error('导入存档为空');
+        if (mode === 'overwrite') {
+            appData = targetData;
+            window.appData = appData;
+            if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+            if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+            alert(`${sourceLabel}覆盖导入成功！`);
+        } else if (mode === 'merge') {
+            updateMainBtnUI('processing');
+            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在保真合并...';
+            const existingTrackCount = appData.sourceOfTruth.tracks.length;
+            appData = mergeTrackArchivesPreservingTruth(appData, targetData);
+            window.appData = appData;
+            const mergedTrackCount = appData.sourceOfTruth.tracks.length;
+            alert(`${sourceLabel}合并完成！\n原有轨迹: ${existingTrackCount} 条\n导入轨迹: ${targetData.sourceOfTruth.tracks.length} 条\n合并后: ${mergedTrackCount} 条\n新增: ${mergedTrackCount - existingTrackCount} 条`);
+        } else {
+            return false;
+        }
+
+        if (window.AndroidBridge && window.AndroidBridge.replaceNativeTracksJson) {
+            try {
+                window.AndroidBridge.replaceNativeTracksJson(JSON.stringify(appData.sourceOfTruth.tracks || []));
+            } catch (nativeErr) {
+                reportDebugEvent('web_native_replace_tracks_error', { error: String(nativeErr), action: 'import_or_optimize' });
+            }
+        }
+        historyStack = [];
+        updateStatsUI();
+        buildTimeline();
+        if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
+        renderLayers();
+        await DataManager.saveData(appData);
+        return true;
+    }
     
     document.getElementById('exportBtn').onclick = async () => { 
         const exportData = buildPortableArchiveData(appData);
@@ -2487,35 +2576,102 @@ button:active { transform: scale(0.92); }
             else { jsonStr = await file.text(); }
             let parsed = JSON.parse(jsonStr);
             
-            let targetData = normalizeImportedArchive(parsed);
-
-            if (!isMergeMode) {
-                if(!confirm("确定要恢复存档吗？当前所有未备份的数据将被覆盖！")) return;
-                appData = targetData;
-                window.appData = appData;
-                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
-                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
-                alert("恢复成功！");
-            } else {
-                updateMainBtnUI('processing');
-                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在保真合并...';
-                const existingTrackCount = appData.sourceOfTruth.tracks.length;
-                appData = mergeTrackArchivesPreservingTruth(appData, targetData);
-                window.appData = appData;
-                const mergedTrackCount = appData.sourceOfTruth.tracks.length;
-                alert(`合并完成！\n原有轨迹: ${existingTrackCount} 条\n导入轨迹: ${targetData.sourceOfTruth.tracks.length} 条\n合并后: ${mergedTrackCount} 条\n新增: ${mergedTrackCount - existingTrackCount} 条`);
-            }
-
-            if (window.AndroidBridge && window.AndroidBridge.replaceNativeTracksJson) {
-                try {
-                    window.AndroidBridge.replaceNativeTracksJson(JSON.stringify(appData.sourceOfTruth.tracks || []));
-                } catch (nativeErr) {
-                    reportDebugEvent('web_native_replace_tracks_error', { error: String(nativeErr), action: 'import_or_optimize' });
-                }
-            }
-            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
+            const targetData = normalizeImportedArchive(parsed);
+            const decision = askImportDecision(`本地文件：${file.name}`, targetData);
+            if (!decision) return;
+            await applyArchiveImport(targetData, decision, '本地存档');
         } catch(err) { alert("操作失败：" + err.message); console.error(err); }
         updateMainBtnUI(); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
+    };
+
+    function requireCloudBridge() {
+        if (!(window.AndroidBridge && location.protocol === 'file:' && AndroidBridge.saveCloudArchiveConfig)) {
+            alert('云存档目前仅支持 APK 版本。');
+            return false;
+        }
+        return true;
+    }
+
+    function parseCloudBridgeResult(raw, action) {
+        let result;
+        try {
+            result = JSON.parse(raw || '{}');
+        } catch (error) {
+            throw new Error(`${action} 返回无法解析`);
+        }
+        if (!result.ok) {
+            throw new Error(result.error || result.body || `${action} 失败，HTTP ${result.status || 'unknown'}`);
+        }
+        return result;
+    }
+
+    async function configureCloudArchive(force = false) {
+        if (!requireCloudBridge()) return false;
+        const existing = JSON.parse(AndroidBridge.getCloudArchiveConfig() || '{}');
+        if (!force && existing.baseUrl && existing.slotId && existing.hasToken) return true;
+        const baseUrl = prompt('云存档服务地址', existing.baseUrl || 'http://47.236.130.216');
+        if (!baseUrl) return false;
+        const slotId = prompt('云存档槽位 slot_id', existing.slotId || 'fog-visitor-main');
+        if (!slotId) return false;
+        const token = prompt(existing.hasToken ? '访问 Token（留空将取消，不会显示旧 Token）' : '访问 Token', '');
+        if (!token) return false;
+        const saved = parseCloudBridgeResult(AndroidBridge.saveCloudArchiveConfig(baseUrl, token, slotId), '保存云存档配置');
+        return !!saved.ok;
+    }
+
+    document.getElementById('cloudConfigBtn').onclick = async () => {
+        try {
+            const ok = await configureCloudArchive(true);
+            if (ok) alert('云存档配置已保存到本机。');
+        } catch (err) {
+            alert('云存档配置失败：' + err.message);
+        } finally {
+            document.getElementById('subMenu').classList.add('hidden');
+        }
+    };
+
+    document.getElementById('cloudUploadBtn').onclick = async () => {
+        try {
+            if (!(await configureCloudArchive(false))) return;
+            const exportData = buildPortableArchiveData(appData);
+            const summary = summarizeArchiveForConfirm(exportData);
+            const ok = confirm([
+                '确认上传当前存档到云端？',
+                '',
+                `上传内容：${summary.trackCount} 段 / 最新 ${summary.latestText} / 面积 ${summary.areaText}`,
+                '云端会生成一个新版本，不会删除旧版本。'
+            ].join('\n'));
+            if (!ok) return;
+            const note = `apk-${document.getElementById('versionTag')?.textContent || 'unknown'} manual upload`;
+            const result = parseCloudBridgeResult(AndroidBridge.uploadCloudArchive(JSON.stringify(exportData), note), '上传云存档');
+            let versionText = '';
+            try {
+                const body = JSON.parse(result.body || '{}');
+                versionText = body?.version?.version_id ? `\n版本：${body.version.version_id}` : '';
+            } catch (_) {}
+            alert(`云存档上传成功！${versionText}`);
+        } catch (err) {
+            alert('上传云存档失败：' + err.message);
+        } finally {
+            document.getElementById('subMenu').classList.add('hidden');
+        }
+    };
+
+    document.getElementById('cloudDownloadBtn').onclick = async () => {
+        try {
+            if (!(await configureCloudArchive(false))) return;
+            const result = parseCloudBridgeResult(AndroidBridge.downloadLatestCloudArchive(), '下载云存档');
+            const parsed = JSON.parse(result.body || '{}');
+            const targetData = normalizeImportedArchive(parsed);
+            const decision = askImportDecision('云端最新存档', targetData);
+            if (!decision) return;
+            await applyArchiveImport(targetData, decision, '云端存档');
+        } catch (err) {
+            alert('下载云存档失败：' + err.message);
+        } finally {
+            updateMainBtnUI();
+            document.getElementById('subMenu').classList.add('hidden');
+        }
     };
 
     // 搜索功能实现
