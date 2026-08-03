@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">web-v0.1.73 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.74 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -329,10 +329,10 @@ button:active { transform: scale(0.92); }
     const originalProject = L.Projection.SphericalMercator.project;
     const originalUnproject = L.Projection.SphericalMercator.unproject;
     
-    // 方案 A：针对“高德地图”、“谷歌街道地图”等纯火星坐标系地图
-    // 我们全局接管投影。这样用户的轨迹 (Vectors)、地图中心点，都会自动与 GCJ-02 对齐。
+    // 方案 A：仅针对高德地图这类 GCJ-02 底图启用偏移。
+    // Google/OSM/ArcGIS 图层保持 WGS84 Web Mercator，确保海外与真实经纬度对齐。
     L.Projection.SphericalMercator.project = function (latlng) {
-        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        const needsGlobalOffset = currentLayerKey === 'amap';
         if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const gcj = CoordTransform.wgs84togcj02(latlng.lng, latlng.lat);
             return originalProject.call(this, new L.LatLng(gcj[1], gcj[0]));
@@ -342,7 +342,7 @@ button:active { transform: scale(0.92); }
     
     L.Projection.SphericalMercator.unproject = function (point) {
         const latlng = originalUnproject.call(this, point);
-        const needsGlobalOffset = currentLayerKey === 'amap' || currentLayerKey === 'google-street';
+        const needsGlobalOffset = currentLayerKey === 'amap';
         if (needsGlobalOffset && !CoordTransform.outOfChina(latlng.lat, latlng.lng)) {
             const wgs = CoordTransform.gcj02towgs84(latlng.lng, latlng.lat);
             return new L.LatLng(wgs[1], wgs[0]);
@@ -793,7 +793,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'web-v0.1.73',
+            appVersion: 'web-v0.1.74',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
