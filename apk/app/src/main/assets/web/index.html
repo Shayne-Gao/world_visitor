@@ -30,19 +30,19 @@ button:active { transform: scale(0.92); }
 
 #trackingBottomDock { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 1005; width: min(92vw, 460px); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 #trackingControlPanel, #trackingStatusPanel { background: rgba(20,20,25,0.9); backdrop-filter: blur(12px); border-radius: 16px; color: #fff; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
-#trackingControlPanel { padding: 12px 14px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+#trackingControlPanel { padding: 0; display: flex; justify-content: center; background: transparent; border: 0; backdrop-filter: none; }
 #trackingStatusPanel { padding: 12px 14px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 #trackingStatusPanel.compact { padding: 8px 10px; }
 #trackingStatusPanel.compact #trackingDebugLog { display: none; }
 #trackingStatusPanel.compact .tracking-toolbar { border-top: 0; padding-top: 0; margin-top: 0; }
-#trackingControlPanel .tracking-control-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-#trackingControlPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; min-width: 0; }
-#trackingControlPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
+#trackingControlPanel .tracking-control-row { display: flex; align-items: center; justify-content: center; }
+#trackingControlPanel .gps-status { display: none; }
+#trackingControlPanel .tracking-meta { display: none; }
 #trackingControlPanel .tracking-meta strong { color: #fff; font-weight: 600; }
 #trackingStatusPanel .tracking-toolbar { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 7px; margin-top: 1px; }
 #trackingStatusPanel .tracking-log-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: rgba(255,255,255,0.86); }
 #trackingStatusPanel .tracking-log-toggle { flex: 0 0 auto; border: 0; background: rgba(255,255,255,0.08); color: #fff; border-radius: 999px; padding: 4px 9px; font-size: 11px; cursor: pointer; }
-.tracking-action-btn { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 7px 12px; color: #fff; font-size: 12px; font-weight: 700; min-width: 88px; background: #16a34a; }
+.tracking-action-btn { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 10px 22px; color: #fff; font-size: 14px; font-weight: 800; min-width: 132px; background: #16a34a; box-shadow: 0 6px 18px rgba(0,0,0,0.28); backdrop-filter: blur(10px); }
 .tracking-action-btn.stop { background: #dc2626; }
 .tracking-action-btn.pending { background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.78); }
 #trackingDebugLog { width: 100%; max-height: 150px; overflow: auto; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.94 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.95 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1777,7 +1777,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.94',
+            appVersion: 'v0.1.95',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
