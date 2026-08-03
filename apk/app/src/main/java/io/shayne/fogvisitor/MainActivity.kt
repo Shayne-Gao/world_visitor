@@ -390,6 +390,7 @@ class MainActivity : AppCompatActivity() {
                       const lastPointText = document.getElementById('trackingLastPointText');
                       const segmentText = document.getElementById('trackingSegmentCountText');
                       const trackingPanel = document.getElementById('trackingStatusPanel');
+                      const trackingActionBtn = document.getElementById('trackingActionBtn');
                       const lastLat = Number(status.lastLat);
                       const lastLng = Number(status.lastLng);
                       const hasFreshCurrentPoint = window.isFreshCurrentLocationTimestamp
@@ -405,6 +406,14 @@ class MainActivity : AppCompatActivity() {
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                      if (window.updateTrackingLogSummary) window.updateTrackingLogSummary(status);
+                      if (trackingActionBtn) {
+                        const recording = !!(status.isTracking || status.shouldTrack);
+                        trackingActionBtn.textContent = recording ? '停止记录' : '开始记录';
+                        trackingActionBtn.classList.toggle('stop', recording);
+                        trackingActionBtn.classList.toggle('pending', false);
+                        trackingActionBtn.disabled = false;
+                      }
                       let markerUpdated = false;
                       if (hasFreshCurrentPoint && Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
                         window.updateCurrentLocationMarker(lastLat, lastLng);
@@ -424,7 +433,7 @@ class MainActivity : AppCompatActivity() {
                         window.ensureStartupLocationMarker(hasFreshCurrentPoint ? 'native_status_marker_missing' : 'native_status_stale_last_point');
                       }
                       if (trackingPanel) {
-                        if (status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
+                        if (window.__fogNativeTrackMode || status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
                         else trackingPanel.classList.add('hidden');
                       }
                       if (window.renderNativeDraftPreview) {
@@ -472,6 +481,34 @@ class MainActivity : AppCompatActivity() {
 
                   autoBtn.style.display = 'none';
                   endAutoBtn.style.display = 'none';
+
+                  const trackingActionBtn = document.getElementById('trackingActionBtn');
+                  if (trackingActionBtn && !trackingActionBtn.dataset.bound) {
+                    trackingActionBtn.dataset.bound = '1';
+                    trackingActionBtn.addEventListener('click', async () => {
+                      try {
+                        const status = JSON.parse(AndroidBridge.getNativeTrackingStatus());
+                        const recording = !!(status.isTracking || status.shouldTrack);
+                        trackingActionBtn.disabled = true;
+                        trackingActionBtn.classList.add('pending');
+                        trackingActionBtn.textContent = recording ? '停止中...' : '启动中...';
+                        if (recording) {
+                          AndroidBridge.stopBackgroundTracking();
+                          setNativeTrackingUi(false);
+                        } else {
+                          AndroidBridge.startBackgroundTracking();
+                          setNativeTrackingUi(true);
+                        }
+                        if (window.reportDebugEvent) {
+                          window.reportDebugEvent('web_tracking_action_clicked', { action: recording ? 'stop' : 'start' });
+                        }
+                      } catch (err) {
+                        console.warn('Failed to toggle native tracking', err);
+                      } finally {
+                        setTimeout(refreshNativeTrackingStatus, 500);
+                      }
+                    });
+                  }
 
                   manualBtn.addEventListener('click', (e) => {
                     if (window.reportDebugEvent) {

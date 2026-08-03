@@ -28,14 +28,23 @@ button:active { transform: scale(0.92); }
 .stat-val.city { color: #c084fc; }    
 .stat-val.district { color: #facc15; }
 
-#trackingStatusPanel { position: absolute; bottom: 54px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.88); backdrop-filter: blur(12px); padding: 12px 16px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; min-width: 240px; }
-#trackingStatusPanel.compact #trackingDebugLog { display: none; }
-#trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+#trackingStatusPanel { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 1005; background: rgba(20,20,25,0.9); backdrop-filter: blur(12px); padding: 12px 14px; border-radius: 16px; color: #fff; display: flex; flex-direction: column; align-items: stretch; gap: 8px; border: 1px solid rgba(255,255,255,0.1); pointer-events: auto; width: min(92vw, 460px); }
+#trackingStatusPanel.compact { padding: 8px 10px; }
+#trackingStatusPanel.compact #trackingDebugLog,
+#trackingStatusPanel.compact .tracking-meta,
+#trackingStatusPanel.compact .tracking-control-row { display: none; }
+#trackingStatusPanel.compact .tracking-toolbar { border-top: 0; padding-top: 0; margin-top: 0; }
+#trackingStatusPanel .tracking-control-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#trackingStatusPanel .gps-status { font-size: 13px; font-weight: bold; display: flex; align-items: center; gap: 8px; min-width: 0; }
 #trackingStatusPanel .tracking-meta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.82); }
 #trackingStatusPanel .tracking-meta strong { color: #fff; font-weight: 600; }
-#trackingStatusPanel .tracking-toolbar { width: 100%; display: flex; justify-content: flex-end; }
-#trackingStatusPanel .tracking-log-toggle { border: 0; background: rgba(255,255,255,0.08); color: #fff; border-radius: 999px; padding: 4px 8px; font-size: 11px; cursor: pointer; }
-#trackingDebugLog { width: min(78vw, 420px); max-height: 150px; overflow: auto; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 2px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
+#trackingStatusPanel .tracking-toolbar { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 7px; margin-top: 1px; }
+#trackingStatusPanel .tracking-log-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: rgba(255,255,255,0.86); }
+#trackingStatusPanel .tracking-log-toggle { flex: 0 0 auto; border: 0; background: rgba(255,255,255,0.08); color: #fff; border-radius: 999px; padding: 4px 9px; font-size: 11px; cursor: pointer; }
+.tracking-action-btn { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 7px 12px; color: #fff; font-size: 12px; font-weight: 700; min-width: 88px; background: #16a34a; }
+.tracking-action-btn.stop { background: #dc2626; }
+.tracking-action-btn.pending { background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.78); }
+#trackingDebugLog { width: 100%; max-height: 150px; overflow: auto; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
 #trackingDebugLog.hidden { display: none; }
 .tracking-debug-line { white-space: pre-wrap; line-height: 1.35; padding: 2px 0; }
 .tracking-debug-line .src { color: #93c5fd; }
@@ -55,7 +64,7 @@ button:active { transform: scale(0.92); }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
-#versionTag { position: absolute; bottom: 15px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
+#versionTag { position: absolute; bottom: 116px; left: 15px; z-index: 1000; color: rgba(255,255,255,0.4); font-size: 11px; font-family: monospace; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
 #rightSideTools { position: absolute; bottom: 118px; right: 15px; z-index: 1000; display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #markTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
 #baseTools { display: flex; flex-direction: column; gap: 12px; align-items: center; }
@@ -191,7 +200,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.92 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.93 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -220,14 +229,18 @@ button:active { transform: scale(0.92); }
 </div>
 
 <div id="trackingStatusPanel" class="btn-shadow hidden">
-    <div class="gps-status"><div id="mainGpsDot" class="gps-dot"></div> <span id="mainGpsText">自动记录中</span></div>
+    <div class="tracking-control-row">
+        <div class="gps-status"><div id="mainGpsDot" class="gps-dot"></div> <span id="mainGpsText">自动记录中</span></div>
+        <button id="trackingActionBtn" class="tracking-action-btn stop" type="button">停止记录</button>
+    </div>
     <div class="tracking-meta">
         <span>状态：<strong id="trackingModeText">等待定位</strong></span>
         <span>最近定位：<strong id="trackingLastPointText">暂无</strong></span>
         <span>累计轨迹段：<strong id="trackingSegmentCountText">0 段</strong></span>
     </div>
     <div class="tracking-toolbar">
-        <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">缩小日志</button>
+        <span id="trackingLogSummary" class="tracking-log-summary">记录中，最新 --，共 0 段</span>
+        <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">缩小</button>
     </div>
     <div id="trackingDebugLog"></div>
 </div>
@@ -1050,12 +1063,23 @@ button:active { transform: scale(0.92); }
         });
     }
     window.appendNativeTrackingDebugEvents = appendNativeTrackingDebugEvents;
+    function updateTrackingLogSummary(status = {}) {
+        const summary = document.getElementById('trackingLogSummary');
+        if (!summary) return;
+        const recording = status.isTracking || status.shouldTrack;
+        const label = recording ? '记录中' : '已暂停';
+        const latest = status.lastPointAt ? new Date(Number(status.lastPointAt)).toLocaleTimeString('zh-CN', { hour12: false }) : '--';
+        const draftCount = Number(status.draftPointCount || 0);
+        const trackCount = Number(status.trackCount || 0);
+        summary.textContent = `${label}，最新 ${draftCount} 点 ${latest}，共 ${trackCount} 段`;
+    }
+    window.updateTrackingLogSummary = updateTrackingLogSummary;
     function updateTrackingDebugPanelMode() {
         const panel = document.getElementById('trackingStatusPanel');
         const btn = document.getElementById('trackingLogToggleBtn');
         if (!panel || !btn) return;
         panel.classList.toggle('compact', !!window.__fogTrackingDebugCompact);
-        btn.textContent = window.__fogTrackingDebugCompact ? '展开日志' : '缩小日志';
+        btn.textContent = window.__fogTrackingDebugCompact ? '展开' : '缩小';
         if (typeof renderLayers === 'function') renderLayers();
     }
     document.addEventListener('DOMContentLoaded', () => {
@@ -1748,7 +1772,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.92',
+            appVersion: 'v0.1.93',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
