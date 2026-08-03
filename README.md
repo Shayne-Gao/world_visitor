@@ -65,6 +65,13 @@
 
 ---
 
+## [web-v0.1.73] - 2026-08-03
+### ✍️ Desktop Draw Mode Drag Fix (桌面标记模式拖拽修复)
+* **修复 Web 标记模式左键拖动地图的问题**：进入标记模式时桌面端也会禁用 Leaflet 地图拖拽，左键拖动只用于划线标记。
+* **绘制事件阻止默认拖拽传播**：鼠标绘制过程会阻止默认事件继续触发地图拖动，退出标记模式后恢复地图拖拽。
+
+---
+
 ## [web-v0.1.72] - 2026-08-03
 ### 🧱 Robust Web Archive Import (Web 导入几何容错)
 * **修复 Web 云/本地导入 `invalid polygon`**：Web 导入不再直接信任存档里的复杂 `renderCache`，而是基于 `sourceOfTruth.tracks` 重建 `globalExplored/globalFog/dailyExplored`。

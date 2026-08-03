@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">web-v0.1.72 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.73 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -793,7 +793,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'web-v0.1.72',
+            appVersion: 'web-v0.1.73',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1175,6 +1175,7 @@ button:active { transform: scale(0.92); }
     document.getElementById('manualDrawBtn').onclick = () => {
         if(isAutoRecording) return alert("请先停止当前的自动探索");
         isEditMode = true; 
+        map.dragging.disable();
         updateMainBtnUI();
         
         markTools.classList.remove('hidden'); 
@@ -1184,7 +1185,7 @@ button:active { transform: scale(0.92); }
         document.getElementById('timelineContainer').classList.remove('expanded'); 
         document.getElementById('toggleTimelineBtn').style.color = '#007bff'; 
         viewTimelineExpanded = false; 
-        if(isMobile) { map.dragging.disable(); document.getElementById('statsPanel').classList.add('minimized'); }
+        if(isMobile) { document.getElementById('statsPanel').classList.add('minimized'); }
         
         document.getElementById('subMenu').classList.add('hidden'); 
         renderLayers(); updateCursor();
@@ -1202,7 +1203,8 @@ button:active { transform: scale(0.92); }
             viewTodayOnly = false; showTodayBtn.style.color = '#007bff'; 
             buildTimeline(); 
             if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); 
-            if(isMobile) { map.dragging.enable(); document.getElementById('statsPanel').classList.remove('minimized'); }
+            map.dragging.enable();
+            if(isMobile) { document.getElementById('statsPanel').classList.remove('minimized'); }
             
             renderLayers(); updateCursor();
         }
@@ -1275,6 +1277,8 @@ button:active { transform: scale(0.92); }
     mc.addEventListener('mousedown', (e) => { 
         if (e.button === 0) {
             if (isEditMode) {
+                e.preventDefault();
+                e.stopPropagation();
                 startDraw(map.mouseEventToLatLng(e)); 
             } else {
                 isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
@@ -1286,6 +1290,8 @@ button:active { transform: scale(0.92); }
 
     mc.addEventListener('mousemove', (e) => { 
         if (isDrawing) { 
+            e.preventDefault();
+            e.stopPropagation();
             moveDraw(map.mouseEventToLatLng(e)); 
         } else if (isDragging || isRightDragging) { 
             const dx = e.clientX - lastX; const dy = e.clientY - lastY; 
@@ -1297,6 +1303,8 @@ button:active { transform: scale(0.92); }
     document.addEventListener('mouseup', (e) => { 
         if (e.button === 0) {
             if (isDrawing) {
+                e.preventDefault();
+                e.stopPropagation();
                 endDraw(); 
             } else if (isDragging) {
                 isDragging = false; updateCursor();
