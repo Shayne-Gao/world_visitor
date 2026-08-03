@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
                       const modeText = document.getElementById('trackingModeText');
                       const lastPointText = document.getElementById('trackingLastPointText');
                       const segmentText = document.getElementById('trackingSegmentCountText');
-                      const trackingPanel = document.getElementById('trackingStatusPanel');
+                      const trackingDock = document.getElementById('trackingBottomDock');
                       const trackingActionBtn = document.getElementById('trackingActionBtn');
                       const lastLat = Number(status.lastLat);
                       const lastLng = Number(status.lastLng);
@@ -432,9 +432,9 @@ class MainActivity : AppCompatActivity() {
                       } else if (!window.__fogStartupLocateInFlight && window.ensureStartupLocationMarker) {
                         window.ensureStartupLocationMarker(hasFreshCurrentPoint ? 'native_status_marker_missing' : 'native_status_stale_last_point');
                       }
-                      if (trackingPanel) {
-                        if (window.__fogNativeTrackMode || status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingPanel.classList.remove('hidden');
-                        else trackingPanel.classList.add('hidden');
+                      if (trackingDock) {
+                        if (window.__fogTrackingPanelPinned || window.__fogNativeTrackMode || status.isTracking || status.shouldTrack || window.__fogEditModeActive) trackingDock.classList.remove('hidden');
+                        else trackingDock.classList.add('hidden');
                       }
                       if (window.renderNativeDraftPreview) {
                         window.renderNativeDraftPreview(status.draftPoints || []);
@@ -463,18 +463,20 @@ class MainActivity : AppCompatActivity() {
 
                   const setNativeTrackingUi = (active) => {
                     const mainToggle = document.getElementById('mainToggleContainer');
-                    const trackingPanel = document.getElementById('trackingStatusPanel');
+                    const trackingDock = document.getElementById('trackingBottomDock');
 
                     if (active) {
+                      window.__fogTrackingPanelPinned = true;
                       window.__fogNativeTrackMode = true;
                       mainToggle?.classList.add('is-active', 'is-tracking');
-                      trackingPanel?.classList.remove('hidden');
+                      trackingDock?.classList.remove('hidden');
                       if (window.updateMainBtnUI) window.updateMainBtnUI('recording');
                       refreshNativeTrackingStatus();
                     } else {
+                      window.__fogTrackingPanelPinned = true;
                       window.__fogNativeTrackMode = false;
                       mainToggle?.classList.remove('is-tracking');
-                      trackingPanel?.classList.remove('hidden');
+                      trackingDock?.classList.remove('hidden');
                       refreshNativeTrackingStatus();
                     }
                   };
