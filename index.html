@@ -43,6 +43,11 @@ button:active { transform: scale(0.92); }
 .brush-group { background: rgba(255,255,255,0.95); border-radius: 25px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
 .brush-btn { width: 34px; height: 34px; border-radius: 50%; background: transparent; font-size: 12px; font-weight: bold; color: #666; }
 .brush-btn.active { background: #28a745; color: white; }
+.mode-group { background: rgba(255,255,255,0.95); border-radius: 18px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.mode-btn { width: 42px; min-height: 34px; border-radius: 14px; background: transparent; font-size: 12px; font-weight: bold; color: #666; flex-direction: column; line-height: 1.05; gap: 2px; }
+.mode-btn small { font-size: 10px; opacity: 0.75; }
+.mode-btn.active { background: #007bff; color: #fff; }
+.mode-btn.danger.active { background: #dc3545; color: #fff; }
 .undo-btn { background: #ffc107; color: #000; font-size: 18px; }
 
 .pill-btn { border-radius: 22px; background: rgba(255,255,255,0.95); padding: 8px 16px; font-size: 13px; font-weight: bold; color: #007bff; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(8px); cursor: pointer; border: none; }
@@ -168,7 +173,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">web-v0.1.75 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.76 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -211,7 +216,15 @@ button:active { transform: scale(0.92); }
 </div>
 
 <div id="rightSideTools">
-    <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
+    <div id="markTools" class="hidden">
+        <button id="undoBtn" class="icon-btn btn-shadow undo-btn" title="撤销最近一步"><i class="fa-solid fa-rotate-left"></i></button>
+        <div class="mode-group btn-shadow">
+            <button id="freeLineBtn" class="mode-btn active" title="自由线 (F)">自由<small>F</small></button>
+            <button id="straightLineBtn" class="mode-btn" title="直线 (S)">直线<small>S</small></button>
+            <button id="deleteTrackBtn" class="mode-btn danger" title="删除整条轨迹"><i class="fa-solid fa-trash"></i><small>删</small></button>
+        </div>
+        <div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div>
+    </div>
     <div id="baseTools">
         <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
@@ -575,7 +588,10 @@ button:active { transform: scale(0.92); }
         }
     };
 
-    let fogLayer, exploredLayer, historyStack = []; let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false; let timelineKeys = []; let fogCache = [];
+    let fogLayer, exploredLayer, trackEditLayer, historyStack = [];
+    let isEditMode = false, isDrawing = false, currentPath = [], tempPolyline, brushRadiusKm = 0.02, viewTodayOnly = false;
+    let drawMode = 'free', editTool = 'draw', straightStartLatLng = null;
+    let timelineKeys = []; let fogCache = [];
     let touchTimer = null; // 【新增】用于移动端多指识别延迟判定
 
     const getTimeKey = () => { const d = new Date(), p = n => n.toString().padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:00`; };
@@ -636,6 +652,41 @@ button:active { transform: scale(0.92); }
             if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
             if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
+        renderTrackEditLayer();
+    }
+
+    function clearTrackEditLayer() {
+        if(trackEditLayer) {
+            map.removeLayer(trackEditLayer);
+            trackEditLayer = null;
+        }
+    }
+
+    function renderTrackEditLayer() {
+        clearTrackEditLayer();
+        if(!isEditMode || editTool !== 'delete') return;
+        trackEditLayer = L.layerGroup().addTo(map);
+        (appData.sourceOfTruth.tracks || []).forEach((track, index) => {
+            if(!track || !track.encodedPath) return;
+            try {
+                const coords = PolylineUtil.decode(track.encodedPath);
+                if(!coords || coords.length < 1) return;
+                const latlngs = coords.map(pt => [pt[1], pt[0]]);
+                const line = L.polyline(latlngs, {
+                    color: '#dc3545',
+                    weight: 10,
+                    opacity: 0.55,
+                    lineCap: 'round',
+                    interactive: true
+                }).addTo(trackEditLayer);
+                line.on('mouseover', () => line.setStyle({ opacity: 0.9, weight: 14 }));
+                line.on('mouseout', () => line.setStyle({ opacity: 0.55, weight: 10 }));
+                line.on('click', (evt) => {
+                    L.DomEvent.stop(evt);
+                    deleteTrackByIndex(index);
+                });
+            } catch(e) {}
+        });
     }
 
     function buildTimeline() { timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); }
@@ -679,8 +730,57 @@ button:active { transform: scale(0.92); }
         }
     });
 
+    function setDrawMode(nextMode) {
+        drawMode = nextMode === 'straight' ? 'straight' : 'free';
+        editTool = 'draw';
+        straightStartLatLng = null;
+        if(tempPolyline) { map.removeLayer(tempPolyline); tempPolyline = null; }
+        document.getElementById('freeLineBtn')?.classList.toggle('active', drawMode === 'free');
+        document.getElementById('straightLineBtn')?.classList.toggle('active', drawMode === 'straight');
+        document.getElementById('deleteTrackBtn')?.classList.remove('active');
+        renderTrackEditLayer();
+        updateCursor();
+    }
+
+    function setDeleteMode() {
+        editTool = 'delete';
+        isDrawing = false;
+        straightStartLatLng = null;
+        if(tempPolyline) { map.removeLayer(tempPolyline); tempPolyline = null; }
+        document.getElementById('freeLineBtn')?.classList.remove('active');
+        document.getElementById('straightLineBtn')?.classList.remove('active');
+        document.getElementById('deleteTrackBtn')?.classList.add('active');
+        renderLayers();
+        document.getElementById('map').style.cursor = 'pointer';
+    }
+
+    function getTrackSummaryForDelete(track) {
+        const coords = track?.encodedPath ? PolylineUtil.decode(track.encodedPath) : [];
+        const source = track?.source || 'legacy';
+        const time = track?.timestamp ? new Date(track.timestamp).toLocaleString('zh-CN', { hour12: false }) : '未知时间';
+        return `${time}\n来源：${source}\n点数：${coords.length}`;
+    }
+
+    async function deleteTrackByIndex(index) {
+        const tracks = appData.sourceOfTruth.tracks || [];
+        const track = tracks[index];
+        if(!track) return;
+        if(!confirm(`确定删除这条轨迹吗？\n\n${getTrackSummaryForDelete(track)}\n\n删除后会重建地图缓存。`)) return;
+        historyStack.push(JSON.stringify(appData));
+        if(historyStack.length > 30) historyStack.shift();
+        const remainingTracks = tracks.filter((_, i) => i !== index);
+        updateMainBtnUI('processing');
+        appData = await rebuildWebArchiveFromTracks(remainingTracks, { createdAt: appData.metadata?.createdAt });
+        await DataManager.saveData(appData);
+        updateStatsUI();
+        buildTimeline();
+        renderLayers();
+        updateMainBtnUI();
+        alert('已删除 1 条轨迹。');
+    }
+
     // 【核心新增：将Turf解雾逻辑抽离，供手动和自动共享】
-    async function processTrackAndSave(coordsArray, trackSource = 'web_draw') {
+    async function processTrackAndSave(coordsArray, trackSource = 'manual-web') {
         if(!coordsArray || coordsArray.length === 0) return;
         let simplifiedCoords = coordsArray;
         if(coordsArray.length > 2) { let line = turf.simplify(turf.lineString(coordsArray), {tolerance: 0.00005, highQuality: false}); simplifiedCoords = line.geometry.coordinates; }
@@ -793,7 +893,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'web-v0.1.75',
+            appVersion: 'web-v0.1.76',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -864,6 +964,14 @@ button:active { transform: scale(0.92); }
             document.getElementById('map').style.cursor = 'grab'; 
             return; 
         } 
+        if (editTool === 'delete') {
+            document.getElementById('map').style.cursor = 'pointer';
+            return;
+        }
+        if (drawMode === 'straight') {
+            document.getElementById('map').style.cursor = 'crosshair';
+            return;
+        }
         let pixelRadius = Math.max(2, Math.min((brushRadiusKm * 1000) / (40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)), 300)); 
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelRadius*2}" height="${pixelRadius*2}"><circle cx="${pixelRadius}" cy="${pixelRadius}" r="${pixelRadius-1}" stroke="white" stroke-width="2" fill="rgba(40,167,69,0.4)"/></svg>`; 
         document.getElementById('map').style.cursor = `url(data:image/svg+xml;base64,${btoa(svg)}) ${pixelRadius} ${pixelRadius}, crosshair`; 
@@ -876,6 +984,21 @@ button:active { transform: scale(0.92); }
 
     document.getElementById('undoBtn').onclick = async () => { if(historyStack.length === 0) return alert("没有可以撤销的步骤了"); appData = JSON.parse(historyStack.pop()); updateStatsUI(); renderLayers(); await DataManager.saveData(appData); };
     document.querySelectorAll('.brush-btn').forEach(btn => { btn.onclick = (e) => { document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); brushRadiusKm = parseFloat(e.target.getAttribute('data-size')); updateCursor(); }; });
+    document.getElementById('freeLineBtn').onclick = () => setDrawMode('free');
+    document.getElementById('straightLineBtn').onclick = () => setDrawMode('straight');
+    document.getElementById('deleteTrackBtn').onclick = () => setDeleteMode();
+    document.addEventListener('keydown', (e) => {
+        const target = e.target;
+        if (!isEditMode || target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
+        const key = e.key.toLowerCase();
+        if (key === 'f') {
+            e.preventDefault();
+            setDrawMode('free');
+        } else if (key === 's') {
+            e.preventDefault();
+            setDrawMode('straight');
+        }
+    });
 
     function locateMe() {
         if(navigator.geolocation) {
@@ -1176,6 +1299,7 @@ button:active { transform: scale(0.92); }
         if(isAutoRecording) return alert("请先停止当前的自动探索");
         isEditMode = true; 
         map.dragging.disable();
+        setDrawMode('free');
         updateMainBtnUI();
         
         markTools.classList.remove('hidden'); 
@@ -1195,6 +1319,10 @@ button:active { transform: scale(0.92); }
         if (isEditMode) {
             // 结束手动标记
             isEditMode = false; 
+            isDrawing = false;
+            straightStartLatLng = null;
+            if(tempPolyline) { map.removeLayer(tempPolyline); tempPolyline = null; }
+            clearTrackEditLayer();
             updateMainBtnUI();
             
             markTools.classList.add('hidden'); 
@@ -1210,12 +1338,41 @@ button:active { transform: scale(0.92); }
         }
     };
 
-    function startDraw(latlng) { if(!isEditMode) return; isDrawing = true; currentPath = [[latlng.lng, latlng.lat]]; let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8)); tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map); }
-    function moveDraw(latlng) { if(!isEditMode || !isDrawing) return; currentPath.push([latlng.lng, latlng.lat]); tempPolyline.addLatLng(latlng); }
+    function startDraw(latlng) {
+        if(!isEditMode || editTool !== 'draw') return;
+        isDrawing = true;
+        currentPath = [[latlng.lng, latlng.lat]];
+        let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+        tempPolyline = L.polyline([latlng], {color: 'rgba(40,167,69,0.6)', weight: currentPixelR*2, lineCap: 'round'}).addTo(map);
+    }
+    function moveDraw(latlng) {
+        if(!isEditMode || editTool !== 'draw') return;
+        if(drawMode === 'straight' && straightStartLatLng && tempPolyline) {
+            tempPolyline.setLatLngs([straightStartLatLng, latlng]);
+            return;
+        }
+        if(!isDrawing) return;
+        currentPath.push([latlng.lng, latlng.lat]);
+        tempPolyline.addLatLng(latlng);
+    }
     async function endDraw(force) {
         if(force !== true && (!isEditMode || !isDrawing)) return; 
         isDrawing = false; if(tempPolyline) map.removeLayer(tempPolyline); 
-        if(currentPath.length > 0) await processTrackAndSave(currentPath, 'web_draw');
+        if(currentPath.length > 0) await processTrackAndSave(currentPath, 'manual-web');
+    }
+
+    async function handleStraightDrawClick(latlng) {
+        if(!isEditMode || editTool !== 'draw' || drawMode !== 'straight') return;
+        if(!straightStartLatLng) {
+            straightStartLatLng = latlng;
+            let currentPixelR = (brushRadiusKm * 1000) / (40075016 * Math.cos(latlng.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
+            tempPolyline = L.polyline([latlng, latlng], {color: 'rgba(0,123,255,0.75)', weight: Math.max(currentPixelR*2, 4), lineCap: 'round', dashArray: '6, 6'}).addTo(map);
+            return;
+        }
+        const coords = [[straightStartLatLng.lng, straightStartLatLng.lat], [latlng.lng, latlng.lat]];
+        straightStartLatLng = null;
+        if(tempPolyline) { map.removeLayer(tempPolyline); tempPolyline = null; }
+        await processTrackAndSave(coords, 'manual-web');
     }
 
     const mc = map.getContainer(); mc.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }); 
@@ -1279,7 +1436,10 @@ button:active { transform: scale(0.92); }
             if (isEditMode) {
                 e.preventDefault();
                 e.stopPropagation();
-                startDraw(map.mouseEventToLatLng(e)); 
+                if (editTool !== 'draw') return;
+                const latlng = map.mouseEventToLatLng(e);
+                if (drawMode === 'straight') handleStraightDrawClick(latlng);
+                else startDraw(latlng);
             } else {
                 isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
             }
@@ -1289,7 +1449,11 @@ button:active { transform: scale(0.92); }
     });
 
     mc.addEventListener('mousemove', (e) => { 
-        if (isDrawing) { 
+        if (isEditMode && editTool === 'draw' && drawMode === 'straight' && straightStartLatLng) {
+            e.preventDefault();
+            e.stopPropagation();
+            moveDraw(map.mouseEventToLatLng(e));
+        } else if (isDrawing) { 
             e.preventDefault();
             e.stopPropagation();
             moveDraw(map.mouseEventToLatLng(e)); 
@@ -1315,10 +1479,15 @@ button:active { transform: scale(0.92); }
     });
     mc.addEventListener('touchstart', (e) => { 
         if(!isEditMode) return; 
+        if(editTool !== 'draw') return;
         if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
 
         if(e.touches.length === 1) {
             e.preventDefault(); // 阻止默认行为，防止屏幕滚动干扰
+            if(drawMode === 'straight') {
+                handleStraightDrawClick(getOffsetLatLng(e, 'aiming'));
+                return;
+            }
             isAiming = true;
             lastTouchEvent = e;
             
@@ -1343,10 +1512,13 @@ button:active { transform: scale(0.92); }
 
     mc.addEventListener('touchmove', (e) => { 
         if(!isEditMode) return;
+        if(editTool !== 'draw') return;
         if(e.touches.length === 1) {
             e.preventDefault(); 
             lastTouchEvent = e; // 更新最新的触摸事件
-            if (isDrawing) {
+            if (drawMode === 'straight' && straightStartLatLng) {
+                moveDraw(getOffsetLatLng(lastTouchEvent, 'aiming'));
+            } else if (isDrawing) {
                 const latlng = getOffsetLatLng(lastTouchEvent, 'drawing');
                 moveDraw(latlng); 
             } else if (isAiming) {

@@ -65,6 +65,14 @@
 
 ---
 
+## [web-v0.1.76] - 2026-08-03
+### 🧰 Web Track Editing Tools (Web 轨迹编辑工具)
+* **新增自由线/直线绘制模式**：Web 标记模式增加“自由线”和“直线”两种绘制方式；快捷键 `F` 切自由线，`S` 切直线。
+* **新增整条轨迹删除**：Web 标记工具栏新增删除模式，点击已有轨迹后可确认删除整条记录，并基于剩余 `sourceOfTruth.tracks` 重建地图缓存。
+* **补录轨迹来源规范化**：Web 新增手动补录轨迹使用 `source: "manual-web"`，继续沿用现有 `source` 字段。
+
+---
+
 ## [v0.1.97] - 2026-08-03
 ### 🗺️ APK Google Layer Alignment (APK 谷歌图层对齐)
 * **修复 APK Google 街道偏移**：Google 街道不再参与 GCJ-02 全局投影偏移，保持与 Google 卫星/真实经纬度一致。
