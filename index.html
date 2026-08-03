@@ -32,7 +32,7 @@ button:active { transform: scale(0.92); }
 #topRightArea { position: absolute; top: 15px; right: 15px; z-index: 1005; display: flex; align-items: center; transition: all 0.3s ease; }
 .menu-group { position: relative; }
 .icon-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); font-size: 18px; color: #333; transition: all 0.3s ease; }
-#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 110px; }
+#subMenu { position: absolute; top: 52px; right: 0; background: rgba(255,255,255,0.95); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px; width: 132px; }
 .sub-btn { background: #f0f0f0; padding: 10px 0; border-radius: 8px; font-size: 13px; font-weight: bold; color: #444; width: 100%; gap: 6px; }
 .sub-btn.danger { background: #ffebee; color: #dc3545; }
 
@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">v0.1.70 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.71 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -201,6 +201,9 @@ button:active { transform: scale(0.92); }
             <button id="exportBtn" class="sub-btn"><i class="fa-solid fa-file-export"></i> 导出存档</button>
             <button id="importBtn" class="sub-btn"><i class="fa-solid fa-file-import"></i> 恢复存档 (覆盖)</button>
             <button id="mergeBtn" class="sub-btn"><i class="fa-solid fa-code-merge"></i> 合并存档 (追加)</button>
+            <button id="cloudConfigBtn" class="sub-btn"><i class="fa-solid fa-cloud"></i> 云存档配置</button>
+            <button id="cloudUploadBtn" class="sub-btn"><i class="fa-solid fa-cloud-arrow-up"></i> 上传云存档</button>
+            <button id="cloudDownloadBtn" class="sub-btn"><i class="fa-solid fa-cloud-arrow-down"></i> 下载云存档</button>
             <button id="resetFog" class="sub-btn danger"><i class="fa-solid fa-trash-can"></i> 重置世界</button>
             <input type="file" id="importFile" style="display:none;">
         </div>
@@ -790,7 +793,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.70',
+            appVersion: 'web-v0.1.71',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1361,6 +1364,193 @@ button:active { transform: scale(0.92); }
     });
 
     document.getElementById('resetFog').onclick = async () => { if(confirm("确定清除所有记录吗？此操作无法恢复！")) { historyStack.push(JSON.stringify(appData)); appData = { version: "1.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: turf.polygon(worldCoords), globalExplored: null, dailyExplored: {}, regionsCache: {} } }; updateStatsUI(); renderLayers(); await DataManager.saveData(appData); document.getElementById('subMenu').classList.add('hidden'); buildTimeline(); document.getElementById('toggleTimelineBtn').classList.add('hidden'); document.getElementById('timelineContainer').classList.remove('expanded'); viewTimelineExpanded = false;} };
+
+    const CLOUD_ARCHIVE_CONFIG_KEY = 'fog_cloud_archive_config_v1';
+
+    function buildWebPortableArchiveData() {
+        const exportData = JSON.parse(JSON.stringify(appData));
+        exportData.renderCache.globalFog = null;
+        return exportData;
+    }
+
+    function normalizeWebImportedArchive(parsed) {
+        let targetData;
+        if(parsed.version === "1.0.0" || parsed.version === "2.0.0") {
+            targetData = parsed;
+            targetData.sourceOfTruth = targetData.sourceOfTruth || { tracks: [] };
+            targetData.sourceOfTruth.tracks = targetData.sourceOfTruth.tracks || [];
+            targetData.renderCache = targetData.renderCache || {};
+            targetData.renderCache.dailyExplored = targetData.renderCache.dailyExplored || {};
+            targetData.renderCache.regionsCache = targetData.renderCache.regionsCache || {};
+            targetData.sourceOfTruth.tracks.forEach(t => {
+                if(!t.bbox) {
+                    const coords = PolylineUtil.decode(t.encodedPath);
+                    t.bbox = getBbox(coords);
+                }
+            });
+            return targetData;
+        }
+        if(parsed.fog) {
+            targetData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } };
+            try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {}
+            return targetData;
+        }
+        throw new Error("无效的存档格式");
+    }
+
+    function summarizeArchiveForConfirm(data) {
+        const tracks = Array.isArray(data?.sourceOfTruth?.tracks) ? data.sourceOfTruth.tracks : [];
+        const latest = tracks.reduce((max, track) => Math.max(max, Number(track?.timestamp || 0)), 0);
+        const latestText = latest ? new Date(latest).toLocaleString('zh-CN', { hour12: false }) : '暂无';
+        const area = Number(data?.metadata?.totalAreaKm2 || 0);
+        return {
+            trackCount: tracks.length,
+            latestText,
+            areaText: `${area.toFixed(3)} km²`,
+            version: data?.version || '未知'
+        };
+    }
+
+    function askImportDecision(sourceLabel, targetData) {
+        const local = summarizeArchiveForConfirm(appData);
+        const incoming = summarizeArchiveForConfirm(targetData);
+        const choice = prompt([
+            `${sourceLabel} 已读取。请选择导入方式：`,
+            '',
+            `当前本地：${local.trackCount} 段 / 最新 ${local.latestText} / 面积 ${local.areaText}`,
+            `导入存档：${incoming.trackCount} 段 / 最新 ${incoming.latestText} / 面积 ${incoming.areaText} / Schema ${incoming.version}`,
+            '',
+            '输入 MERGE：合并导入（推荐，不删除当前数据）',
+            '输入 OVERWRITE：覆盖当前数据（危险，需要再次确认）',
+            '直接取消或留空：不导入'
+        ].join('\n'), 'MERGE');
+        const normalized = String(choice || '').trim().toUpperCase();
+        if (!normalized) return null;
+        if (normalized === 'MERGE') return 'merge';
+        if (normalized === 'OVERWRITE') {
+            const ok = confirm([
+                '你选择了覆盖当前存档。',
+                '',
+                `当前本地将被替换：${local.trackCount} 段 / 最新 ${local.latestText}`,
+                `覆盖来源：${incoming.trackCount} 段 / 最新 ${incoming.latestText}`,
+                '',
+                '覆盖不可直接撤销。确认覆盖吗？'
+            ].join('\n'));
+            return ok ? 'overwrite' : null;
+        }
+        alert('未识别输入，已取消导入。');
+        return null;
+    }
+
+    async function applyArchiveImport(targetData, mode, sourceLabel = '存档') {
+        if (mode === 'overwrite') {
+            appData = targetData;
+            if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
+            if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
+            alert(`${sourceLabel}覆盖导入成功！`);
+        } else if (mode === 'merge') {
+            updateMainBtnUI('processing');
+            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
+            const existingTracks = appData.sourceOfTruth.tracks;
+            const newTracks = targetData.sourceOfTruth.tracks;
+            const trackMap = new Map();
+            existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
+            newTracks.forEach(t => {
+                const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
+                if (!trackMap.has(key)) trackMap.set(key, t);
+            });
+            const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+            let cumulativeExplored = null;
+            const optimizedTracks = [];
+            appData.renderCache.dailyExplored = {};
+            for(let i = 0; i < allTracks.length; i++) {
+                const track = allTracks[i];
+                let coords = PolylineUtil.decode(track.encodedPath);
+                if(coords.length < 1) continue;
+                if(coords.length > 2) {
+                    const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
+                    coords = line.geometry.coordinates;
+                    track.encodedPath = PolylineUtil.encode(coords);
+                }
+                track.bbox = getBbox(coords);
+                let trackPoly;
+                try {
+                    if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
+                    else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
+                    trackPoly = turf.truncate(trackPoly, {precision: 6});
+                    if (!cumulativeExplored) {
+                        cumulativeExplored = trackPoly;
+                        optimizedTracks.push(track);
+                    } else {
+                        const diff = turf.difference(trackPoly, cumulativeExplored);
+                        if (diff && turf.area(diff) > 1) {
+                            cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                            optimizedTracks.push(track);
+                        } else continue;
+                    }
+                    const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
+                    if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
+                    else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
+                } catch(e) {
+                    optimizedTracks.push(track);
+                    if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
+                }
+                if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
+            }
+            appData.sourceOfTruth.tracks = optimizedTracks;
+            appData.renderCache.globalExplored = cumulativeExplored;
+            appData.renderCache.globalFog = cumulativeExplored ? turf.difference(turf.polygon(worldCoords), cumulativeExplored) : turf.polygon(worldCoords);
+            appData.metadata.totalAreaKm2 = calcTotalArea();
+            alert(`${sourceLabel}合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
+        } else return false;
+        historyStack = [];
+        updateStatsUI();
+        buildTimeline();
+        if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
+        renderLayers();
+        await DataManager.saveData(appData);
+        return true;
+    }
+
+    function getCloudArchiveConfig() {
+        try { return JSON.parse(localStorage.getItem(CLOUD_ARCHIVE_CONFIG_KEY) || '{}'); }
+        catch (_) { return {}; }
+    }
+
+    function saveCloudArchiveConfig(config) {
+        localStorage.setItem(CLOUD_ARCHIVE_CONFIG_KEY, JSON.stringify(config));
+    }
+
+    async function configureCloudArchive(force = false) {
+        const existing = getCloudArchiveConfig();
+        if (!force && existing.baseUrl && existing.token && existing.slotId) return existing;
+        const baseUrl = prompt('云存档服务地址', existing.baseUrl || 'http://47.236.130.216');
+        if (!baseUrl) return null;
+        const slotId = prompt('云存档槽位 slot_id', existing.slotId || 'fog-visitor-main');
+        if (!slotId) return null;
+        const token = prompt(existing.token ? '访问 Token（留空将取消，不会显示旧 Token）' : '访问 Token', '');
+        if (!token) return null;
+        const config = { baseUrl: baseUrl.trim().replace(/\/+$/, ''), slotId: slotId.trim(), token: token.trim() };
+        saveCloudArchiveConfig(config);
+        return config;
+    }
+
+    async function cloudFetch(path, options = {}) {
+        const config = await configureCloudArchive(false);
+        if (!config) throw new Error('未配置云存档');
+        const response = await fetch(`${config.baseUrl}${path.replace('{slot}', encodeURIComponent(config.slotId))}`, {
+            ...options,
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                ...(options.headers || {})
+            }
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`云存档请求失败 HTTP ${response.status}${text ? ': ' + text : ''}`);
+        }
+        return response;
+    }
     
     document.getElementById('exportBtn').onclick = async () => { 
         let exportData = JSON.parse(JSON.stringify(appData)); exportData.renderCache.globalFog = null; 
@@ -1385,116 +1575,71 @@ button:active { transform: scale(0.92); }
             else { jsonStr = await file.text(); }
             let parsed = JSON.parse(jsonStr);
             
-            // 确保 parsed 格式统一 (支持 v1.0.0 到 v2.0.0 的平滑过渡)
-            let targetData;
-            if(parsed.version === "1.0.0" || parsed.version === "2.0.0") { 
-                targetData = parsed; 
-                // 为旧版数据补全 bbox
-                targetData.sourceOfTruth.tracks.forEach(t => {
-                    if(!t.bbox) {
-                        const coords = PolylineUtil.decode(t.encodedPath);
-                        t.bbox = getBbox(coords);
-                    }
-                });
-            }
-            else if(parsed.fog) { 
-                targetData = { version: "2.0.0", metadata: { totalAreaKm2: 0, createdAt: Date.now() }, sourceOfTruth: { tracks: [] }, renderCache: { globalFog: parsed.fog, globalExplored: null, dailyExplored: parsed.daily || {}, regionsCache: {} } }; 
-                try { targetData.renderCache.globalExplored = turf.difference(turf.polygon(worldCoords), parsed.fog); } catch(err) {} 
-            } else { throw new Error("无效的存档格式"); }
-
-            if (!isMergeMode) {
-                if(!confirm("确定要恢复存档吗？当前所有未备份的数据将被覆盖！")) return;
-                appData = targetData;
-                if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
-                if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
-                alert("恢复成功！");
-            } else {
-                updateMainBtnUI('processing');
-                document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
-                
-                // 1. 全局去重与排序
-                const existingTracks = appData.sourceOfTruth.tracks;
-                const newTracks = targetData.sourceOfTruth.tracks;
-                const trackMap = new Map();
-                existingTracks.forEach(t => trackMap.set(t.id || (t.timestamp + '_' + t.encodedPath.length), t));
-                newTracks.forEach(t => {
-                    const key = t.id || (t.timestamp + '_' + t.encodedPath.length);
-                    if (!trackMap.has(key)) trackMap.set(key, t);
-                });
-                const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-                // 2. 空间增量判定与路径简化
-                let cumulativeExplored = null;
-                const optimizedTracks = [];
-                appData.renderCache.dailyExplored = {};
-
-                for(let i = 0; i < allTracks.length; i++) {
-                    const track = allTracks[i];
-                    let coords = PolylineUtil.decode(track.encodedPath);
-                    if(coords.length < 1) continue;
-
-                    // A. 路径简化 (A->B->C->D => A->D)
-                    if(coords.length > 2) {
-                        const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
-                        coords = line.geometry.coordinates;
-                        track.encodedPath = PolylineUtil.encode(coords); 
-                        track.bbox = getBbox(coords); // 重新计算简化后的 bbox
-                    } else {
-                        track.bbox = getBbox(coords); // 补全 bbox
-                    }
-
-                    // B. 空间增量判定 (是否点亮了新区域)
-                    let trackPoly;
-                    try {
-                        if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
-                        else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
-                        trackPoly = turf.truncate(trackPoly, {precision: 6});
-
-                        if (!cumulativeExplored) {
-                            cumulativeExplored = trackPoly;
-                            optimizedTracks.push(track);
-                        } else {
-                            // 计算增量面积
-                            const diff = turf.difference(trackPoly, cumulativeExplored);
-                            if (diff && turf.area(diff) > 1) { // 只有新增面积 > 1平方米时才保留
-                                cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                                optimizedTracks.push(track);
-                            } else {
-                                // 100% 冗余路径，跳过不加入 optimizedTracks
-                                continue; 
-                            }
-                        }
-
-                        // C. 重建时光机每日索引 (仅保留有贡献的轨迹)
-                        const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
-                        if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
-                        else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
-
-                    } catch(e) { 
-                        // 容灾：如果空间计算出错，保守起见保留原始数据
-                        optimizedTracks.push(track); 
-                        if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                    }
-                    
-                    if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
-                }
-
-                // 3. 最终数据同步
-                appData.sourceOfTruth.tracks = optimizedTracks;
-                appData.renderCache.globalExplored = cumulativeExplored;
-                if (cumulativeExplored) {
-                    appData.renderCache.globalFog = turf.difference(turf.polygon(worldCoords), cumulativeExplored);
-                } else {
-                    appData.renderCache.globalFog = turf.polygon(worldCoords);
-                }
-                
-                appData.metadata.totalAreaKm2 = calcTotalArea();
-                alert(`深度合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
-            }
-
-            historyStack = []; updateStatsUI(); buildTimeline(); if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); renderLayers(); await DataManager.saveData(appData); 
+            const targetData = normalizeWebImportedArchive(parsed);
+            const decision = askImportDecision(`本地文件：${file.name}`, targetData);
+            if (!decision) return;
+            await applyArchiveImport(targetData, decision, '本地存档');
         } catch(err) { alert("操作失败：" + err.message); console.error(err); }
         updateMainBtnUI(); e.target.value = ''; document.getElementById('subMenu').classList.add('hidden');
+    };
+
+    document.getElementById('cloudConfigBtn').onclick = async () => {
+        try {
+            const config = await configureCloudArchive(true);
+            if (config) alert('云存档配置已保存到浏览器 localStorage。');
+        } catch(err) {
+            alert('云存档配置失败：' + err.message);
+        } finally {
+            document.getElementById('subMenu').classList.add('hidden');
+        }
+    };
+
+    document.getElementById('cloudUploadBtn').onclick = async () => {
+        try {
+            const config = await configureCloudArchive(false);
+            if (!config) return;
+            const exportData = buildWebPortableArchiveData();
+            const summary = summarizeArchiveForConfirm(exportData);
+            const ok = confirm([
+                '确认上传当前 Web 存档到云端？',
+                '',
+                `上传内容：${summary.trackCount} 段 / 最新 ${summary.latestText} / 面积 ${summary.areaText}`,
+                '云端会生成一个新版本，不会删除旧版本。'
+            ].join('\n'));
+            if (!ok) return;
+            const response = await cloudFetch('/api/saves/{slot}', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-Filename': 'fog-visitor-save-v2.json',
+                    'X-Save-Note': `web-${document.getElementById('versionTag')?.textContent || 'unknown'} manual upload`
+                },
+                body: JSON.stringify(exportData)
+            });
+            const result = await response.json().catch(() => ({}));
+            alert(`云存档上传成功！${result?.version?.version_id ? '\n版本：' + result.version.version_id : ''}`);
+        } catch(err) {
+            alert('上传云存档失败：' + err.message + '\n\n如果是浏览器 CORS 报错，需要服务端允许跨域请求。');
+        } finally {
+            document.getElementById('subMenu').classList.add('hidden');
+        }
+    };
+
+    document.getElementById('cloudDownloadBtn').onclick = async () => {
+        try {
+            await configureCloudArchive(false);
+            const response = await cloudFetch('/api/saves/{slot}', { method: 'GET' });
+            const parsed = await response.json();
+            const targetData = normalizeWebImportedArchive(parsed);
+            const decision = askImportDecision('云端最新存档', targetData);
+            if (!decision) return;
+            await applyArchiveImport(targetData, decision, '云端存档');
+        } catch(err) {
+            alert('下载云存档失败：' + err.message + '\n\n如果是浏览器 CORS 报错，需要服务端允许跨域请求。');
+        } finally {
+            updateMainBtnUI();
+            document.getElementById('subMenu').classList.add('hidden');
+        }
     };
 
     // 搜索功能实现
