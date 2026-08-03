@@ -168,7 +168,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-     <div id="versionTag" title="点击复制诊断信息">web-v0.1.71 (Schema v2.0)</div>
+     <div id="versionTag" title="点击复制诊断信息">web-v0.1.72 (Schema v2.0)</div>
 
     <div id="searchContainer" class="btn-shadow hidden">
     <i class="fa-solid fa-magnifying-glass"></i>
@@ -793,7 +793,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'web-v0.1.71',
+            appVersion: 'web-v0.1.72',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1379,9 +1379,7 @@ button:active { transform: scale(0.92); }
             targetData = parsed;
             targetData.sourceOfTruth = targetData.sourceOfTruth || { tracks: [] };
             targetData.sourceOfTruth.tracks = targetData.sourceOfTruth.tracks || [];
-            targetData.renderCache = targetData.renderCache || {};
-            targetData.renderCache.dailyExplored = targetData.renderCache.dailyExplored || {};
-            targetData.renderCache.regionsCache = targetData.renderCache.regionsCache || {};
+            targetData.renderCache = { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} };
             targetData.sourceOfTruth.tracks.forEach(t => {
                 if(!t.bbox) {
                     const coords = PolylineUtil.decode(t.encodedPath);
@@ -1396,6 +1394,70 @@ button:active { transform: scale(0.92); }
             return targetData;
         }
         throw new Error("无效的存档格式");
+    }
+
+    function safeUnionGeometry(a, b) {
+        if (!a) return b || null;
+        if (!b) return a || null;
+        try { return turf.union(a, b); }
+        catch (_) { return a; }
+    }
+
+    function safeDifferenceGeometry(a, b) {
+        if (!a) return null;
+        if (!b) return a;
+        try { return turf.difference(a, b); }
+        catch (_) { return null; }
+    }
+
+    async function rebuildWebArchiveFromTracks(tracks, options = {}) {
+        const sortedTracks = (tracks || [])
+            .filter(track => track && track.encodedPath)
+            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const rebuilt = {
+            version: "2.0.0",
+            metadata: { totalAreaKm2: 0, createdAt: options.createdAt || Date.now() },
+            sourceOfTruth: { tracks: [] },
+            renderCache: { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} }
+        };
+        let cumulativeExplored = null;
+        let skipped = 0;
+        for (let i = 0; i < sortedTracks.length; i++) {
+            const track = JSON.parse(JSON.stringify(sortedTracks[i]));
+            try {
+                let coords = PolylineUtil.decode(track.encodedPath);
+                if (!coords || coords.length < 1) { skipped++; continue; }
+                if (coords.length > 2) {
+                    try {
+                        const simplifiedLine = turf.simplify(turf.lineString(coords), { tolerance: 0.00005, highQuality: false });
+                        coords = simplifiedLine.geometry.coordinates;
+                        track.encodedPath = PolylineUtil.encode(coords);
+                    } catch (_) {}
+                }
+                track.bbox = getBbox(coords);
+                const radius = Number(track.brushRadiusKm) || 0.02;
+                let trackPoly = coords.length === 1
+                    ? turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' })
+                    : turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
+                trackPoly = turf.truncate(turf.simplify(trackPoly, { tolerance: 0.0001, highQuality: false }), { precision: 5 });
+                if (!trackPoly) { skipped++; continue; }
+                rebuilt.sourceOfTruth.tracks.push(track);
+                cumulativeExplored = safeUnionGeometry(cumulativeExplored, trackPoly);
+                const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
+                rebuilt.renderCache.dailyExplored[dateKey] = safeUnionGeometry(rebuilt.renderCache.dailyExplored[dateKey], trackPoly);
+            } catch (error) {
+                skipped++;
+            }
+            if (i % 50 === 0) {
+                document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 重建中 (${i}/${sortedTracks.length})...`;
+                await new Promise(r => requestAnimationFrame(r));
+            }
+        }
+        rebuilt.renderCache.globalExplored = cumulativeExplored;
+        rebuilt.renderCache.globalFog = safeDifferenceGeometry(turf.polygon(worldCoords), cumulativeExplored) || turf.polygon(worldCoords);
+        rebuilt.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
+        rebuilt.metadata.skippedInvalidTrackCount = skipped;
+        return rebuilt;
     }
 
     function summarizeArchiveForConfirm(data) {
@@ -1444,10 +1506,10 @@ button:active { transform: scale(0.92); }
 
     async function applyArchiveImport(targetData, mode, sourceLabel = '存档') {
         if (mode === 'overwrite') {
-            appData = targetData;
-            if(!appData.renderCache.regionsCache) appData.renderCache.regionsCache = {};
-            if(!appData.renderCache.globalFog) appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords);
-            alert(`${sourceLabel}覆盖导入成功！`);
+            updateMainBtnUI('processing');
+            document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在重建导入数据...';
+            appData = await rebuildWebArchiveFromTracks(targetData.sourceOfTruth.tracks, { createdAt: targetData.metadata?.createdAt });
+            alert(`${sourceLabel}覆盖导入成功！${appData.metadata.skippedInvalidTrackCount ? '\n已跳过异常轨迹: ' + appData.metadata.skippedInvalidTrackCount + ' 条' : ''}`);
         } else if (mode === 'merge') {
             updateMainBtnUI('processing');
             document.getElementById('endActionBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在深度优化合并...';
@@ -1460,48 +1522,8 @@ button:active { transform: scale(0.92); }
                 if (!trackMap.has(key)) trackMap.set(key, t);
             });
             const allTracks = Array.from(trackMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-            let cumulativeExplored = null;
-            const optimizedTracks = [];
-            appData.renderCache.dailyExplored = {};
-            for(let i = 0; i < allTracks.length; i++) {
-                const track = allTracks[i];
-                let coords = PolylineUtil.decode(track.encodedPath);
-                if(coords.length < 1) continue;
-                if(coords.length > 2) {
-                    const line = turf.simplify(turf.lineString(coords), {tolerance: 0.00005, highQuality: false});
-                    coords = line.geometry.coordinates;
-                    track.encodedPath = PolylineUtil.encode(coords);
-                }
-                track.bbox = getBbox(coords);
-                let trackPoly;
-                try {
-                    if(coords.length === 1) trackPoly = turf.buffer(turf.point(coords[0]), track.brushRadiusKm, {units: 'kilometers'});
-                    else trackPoly = turf.buffer(turf.lineString(coords), track.brushRadiusKm, {units: 'kilometers'});
-                    trackPoly = turf.truncate(trackPoly, {precision: 6});
-                    if (!cumulativeExplored) {
-                        cumulativeExplored = trackPoly;
-                        optimizedTracks.push(track);
-                    } else {
-                        const diff = turf.difference(trackPoly, cumulativeExplored);
-                        if (diff && turf.area(diff) > 1) {
-                            cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                            optimizedTracks.push(track);
-                        } else continue;
-                    }
-                    const dateKey = new Date(track.timestamp).toISOString().split('T')[0];
-                    if(!appData.renderCache.dailyExplored[dateKey]) appData.renderCache.dailyExplored[dateKey] = trackPoly;
-                    else appData.renderCache.dailyExplored[dateKey] = turf.union(appData.renderCache.dailyExplored[dateKey], trackPoly);
-                } catch(e) {
-                    optimizedTracks.push(track);
-                    if(cumulativeExplored && trackPoly) cumulativeExplored = turf.union(cumulativeExplored, trackPoly);
-                }
-                if(i % 50 === 0) { document.getElementById('endActionBtn').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 优化中 (${i}/${allTracks.length})...`; await new Promise(r => requestAnimationFrame(r)); }
-            }
-            appData.sourceOfTruth.tracks = optimizedTracks;
-            appData.renderCache.globalExplored = cumulativeExplored;
-            appData.renderCache.globalFog = cumulativeExplored ? turf.difference(turf.polygon(worldCoords), cumulativeExplored) : turf.polygon(worldCoords);
-            appData.metadata.totalAreaKm2 = calcTotalArea();
-            alert(`${sourceLabel}合并完成！\n原始轨迹: ${allTracks.length} 条\n优化后: ${optimizedTracks.length} 条\n已剔除冗余轨迹: ${allTracks.length - optimizedTracks.length} 条`);
+            appData = await rebuildWebArchiveFromTracks(allTracks, { createdAt: appData.metadata?.createdAt });
+            alert(`${sourceLabel}合并完成！\n原始轨迹: ${allTracks.length} 条\n重建后: ${appData.sourceOfTruth.tracks.length} 条\n异常跳过: ${appData.metadata.skippedInvalidTrackCount || 0} 条`);
         } else return false;
         historyStack = [];
         updateStatsUI();

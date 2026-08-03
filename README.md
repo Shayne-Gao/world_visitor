@@ -65,6 +65,13 @@
 
 ---
 
+## [web-v0.1.72] - 2026-08-03
+### 🧱 Robust Web Archive Import (Web 导入几何容错)
+* **修复 Web 云/本地导入 `invalid polygon`**：Web 导入不再直接信任存档里的复杂 `renderCache`，而是基于 `sourceOfTruth.tracks` 重建 `globalExplored/globalFog/dailyExplored`。
+* **单条异常轨迹不中断导入**：重建过程中对单条轨迹的 buffer/union/difference 增加容错，遇到异常几何会跳过并在导入结果里提示数量。
+
+---
+
 ## [web-v0.1.71] - 2026-08-03
 ### ☁️ Web Cloud Archive Sync (Web 云存档同步)
 * **Web 版新增云存档入口**：根目录 Web 版本新增云存档配置、上传云存档、下载云存档，配置保存在浏览器 `localStorage`。
