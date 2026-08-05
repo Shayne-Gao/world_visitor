@@ -223,11 +223,13 @@ class MainActivity : AppCompatActivity() {
                 archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
                 archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
 
-                if (archive.renderCache.globalFog || archive.renderCache.globalExplored) {
+                const hasDailyCache = Object.keys(archive.renderCache.dailyExplored || {}).length > 0;
+                if ((archive.renderCache.globalFog || archive.renderCache.globalExplored) && hasDailyCache) {
                   return archive;
                 }
 
                 let cumulativeExplored = null;
+                archive.renderCache.dailyExplored = {};
                 const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
                 for (const track of tracks) {
@@ -240,6 +242,10 @@ class MainActivity : AppCompatActivity() {
                     if (coords.length === 1) mask = turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' });
                     else mask = turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
                     cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
+                    const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
+                    archive.renderCache.dailyExplored[dateKey] = archive.renderCache.dailyExplored[dateKey]
+                      ? turf.union(archive.renderCache.dailyExplored[dateKey], mask)
+                      : mask;
                   } catch (e) {
                     console.warn('Failed to rebuild track mask', e, track);
                   }

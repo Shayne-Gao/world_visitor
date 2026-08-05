@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.97 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.98 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -583,7 +583,8 @@ button:active { transform: scale(0.92); }
         archive.renderCache = archive.renderCache || { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} };
         archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
         archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
-        if (archive.renderCache.globalFog || archive.renderCache.globalExplored) return archive;
+        const hasDailyCache = Object.keys(archive.renderCache.dailyExplored || {}).length > 0;
+        if ((archive.renderCache.globalFog || archive.renderCache.globalExplored) && hasDailyCache) return archive;
         if (deferHeavy) {
             archive.renderCache.globalFog = null;
             archive.renderCache.globalExplored = null;
@@ -592,6 +593,7 @@ button:active { transform: scale(0.92); }
         }
 
         let cumulativeExplored = null;
+        archive.renderCache.dailyExplored = {};
         const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         for (const track of tracks) {
             if (!track || !track.encodedPath) continue;
@@ -603,6 +605,10 @@ button:active { transform: scale(0.92); }
                     ? turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' })
                     : turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
                 cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
+                const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
+                archive.renderCache.dailyExplored[dateKey] = archive.renderCache.dailyExplored[dateKey]
+                    ? turf.union(archive.renderCache.dailyExplored[dateKey], mask)
+                    : mask;
             } catch (e) {}
         }
         archive.renderCache.globalExplored = cumulativeExplored;
@@ -674,6 +680,7 @@ button:active { transform: scale(0.92); }
         archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
 
         let cumulativeExplored = null;
+        archive.renderCache.dailyExplored = {};
         const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         for (let index = 0; index < tracks.length; index++) {
             const track = tracks[index];
@@ -686,6 +693,10 @@ button:active { transform: scale(0.92); }
                     ? turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' })
                     : turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
                 cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
+                const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
+                archive.renderCache.dailyExplored[dateKey] = archive.renderCache.dailyExplored[dateKey]
+                    ? turf.union(archive.renderCache.dailyExplored[dateKey], mask)
+                    : mask;
             } catch (e) {}
 
             if ((index + 1) % chunkSize === 0) {
@@ -723,13 +734,11 @@ button:active { transform: scale(0.92); }
                 if (!raw) return;
                 if (overlayToken) appendBlockingOverlayLine('构建探索区域 0/0', true, overlayToken);
                 const parsed = JSON.parse(raw);
-                const normalized = window.__fogNormalizeNativeArchiveForWeb
-                    ? window.__fogNormalizeNativeArchiveForWeb(parsed)
-                    : await rebuildRenderCacheProgressively(parsed, {
-                        onProgress(done, total) {
-                            if (overlayToken) updateBlockingOverlayLastLine(`构建探索区域 ${done}/${total}`, overlayToken);
-                        }
-                    });
+                const normalized = await rebuildRenderCacheProgressively(parsed, {
+                    onProgress(done, total) {
+                        if (overlayToken) updateBlockingOverlayLastLine(`构建探索区域 ${done}/${total}`, overlayToken);
+                    }
+                });
                 if (overlayToken) appendBlockingOverlayLine('渲染地图图层', true, overlayToken);
                 await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: !runInBackground });
                 reportDebugEvent('web_native_hydration_done', {
@@ -790,7 +799,7 @@ button:active { transform: scale(0.92); }
         return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
     }
 
-    const MAX_NATIVE_INCREMENTAL_TRACKS = 50;
+    const MAX_NATIVE_INCREMENTAL_TRACKS = 1000;
     window.__fogMaxNativeIncrementalTracks = MAX_NATIVE_INCREMENTAL_TRACKS;
 
     function upsertTrackIntoSourceOfTruth(track) {
@@ -1226,20 +1235,33 @@ button:active { transform: scale(0.92); }
                         if (!nativeSummary) return localPrimary;
                         const localTrackCount = getTrackCountFromData(localPrimary);
                         const localLatestTimestamp = getLatestTrackTimestampFromData(localPrimary);
+                        const localDailyKeyCount = Object.keys(localPrimary?.renderCache?.dailyExplored || {}).length;
+                        const shouldRepairDailyCache = localTrackCount > 0 && localDailyKeyCount === 0;
                         reportDebugEvent('web_load_primary_cache_candidate', {
                             localTrackCount: String(localTrackCount),
                             localLatestTimestamp: String(localLatestTimestamp),
                             nativeTrackCount: String(nativeSummary?.trackCount || 0),
-                            nativeLatestTimestamp: String(nativeSummary?.latestTimestamp || 0)
+                            nativeLatestTimestamp: String(nativeSummary?.latestTimestamp || 0),
+                            localDailyKeys: String(localDailyKeyCount)
                         });
                         const nativeMatchesLocal =
                             nativeSummary.trackCount === localTrackCount &&
                             (nativeSummary.latestTimestamp || 0) === localLatestTimestamp;
-                        if (nativeMatchesLocal) {
+                        if (nativeMatchesLocal && !shouldRepairDailyCache) {
                             window.__fogPendingNativeHydration = false;
                             window.__fogHydrateNativeInBackground = false;
                             reportDebugEvent('web_load_primary_cache_hit', {
                                 trackCount: String(localTrackCount)
+                            });
+                            return localPrimary;
+                        }
+                        if (nativeMatchesLocal && shouldRepairDailyCache) {
+                            window.__fogPendingNativeHydration = true;
+                            window.__fogHydrateNativeInBackground = true;
+                            reportDebugEvent('web_load_primary_cache_daily_missing', {
+                                localTrackCount: String(localTrackCount),
+                                nativeTrackCount: String(nativeSummary.trackCount || 0),
+                                localDailyKeys: String(localDailyKeyCount)
                             });
                             return localPrimary;
                         }
@@ -1250,6 +1272,7 @@ button:active { transform: scale(0.92); }
                             const addedTrackCount = Math.max(0, (nativeSummary.trackCount || 0) - localTrackCount);
                             const canIncrementallyCatchUp =
                                 localTrackCount > 0 &&
+                                !shouldRepairDailyCache &&
                                 addedTrackCount > 0 &&
                                 addedTrackCount <= MAX_NATIVE_INCREMENTAL_TRACKS &&
                                 nativeSummary.latestTimestamp > localLatestTimestamp;
@@ -1265,16 +1288,15 @@ button:active { transform: scale(0.92); }
                                 nativeTrackCount: String(nativeSummary.trackCount || 0),
                                 addedTrackCount: String(addedTrackCount),
                                 incremental: String(canIncrementallyCatchUp),
-                                threshold: String(MAX_NATIVE_INCREMENTAL_TRACKS)
+                                threshold: String(MAX_NATIVE_INCREMENTAL_TRACKS),
+                                dailyRepair: String(shouldRepairDailyCache)
                             });
                             return localPrimary;
                         }
                     }
                     const raw = AndroidBridge.exportNativeArchiveJson();
                     if (raw) {
-                        const nativePrimary = window.__fogNormalizeNativeArchiveForWeb
-                            ? window.__fogNormalizeNativeArchiveForWeb(JSON.parse(raw))
-                            : normalizeNativeArchiveForWebLocal(JSON.parse(raw), { deferHeavy: true });
+                        const nativePrimary = normalizeNativeArchiveForWebLocal(JSON.parse(raw), { deferHeavy: true });
                         if (nativePrimary?.__deferredNativeHydration) {
                             window.__fogPendingNativeHydration = true;
                             window.__fogHydrateNativeInBackground = false;
@@ -1780,7 +1802,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.97',
+            appVersion: 'v0.1.98',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

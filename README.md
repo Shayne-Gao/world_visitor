@@ -81,6 +81,15 @@
 
 ---
 
+## [v0.1.98] - 2026-08-05
+### ⚡ Native Cache Hydration Optimization (原生缓存同步优化)
+* **减少不必要全量重建**：APK 启动时 Native 比 Web 缓存新增轨迹的增量阈值从 50 提升到 1000，类似 364 条新增轨迹会走增量补齐，不再直接触发全量 hydration。
+* **全量重建恢复每日缓存**：原生存档全量 hydration / normalize 时同步重建 `dailyExplored`，避免重建后 `dailyKeys=0` 导致时光机数据缺失。
+* **历史坏缓存自修复**：如果 Native 与 Web 轨迹数已一致但本地 `dailyExplored` 为空，会触发一次修复性 progressive hydration，修复后后续启动应命中缓存。
+* **渐进式全量 hydration**：启动后的全量 hydration 改为 progressive rebuild，过程中分批让出主线程，降低长时间卡死感。
+
+---
+
 ## [v0.1.97] - 2026-08-03
 ### 🗺️ APK Google Layer Alignment (APK 谷歌图层对齐)
 * **修复 APK Google 街道偏移**：Google 街道不再参与 GCJ-02 全局投影偏移，保持与 Google 卫星/真实经纬度一致。
