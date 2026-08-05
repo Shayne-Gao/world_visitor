@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.98 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.99 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -270,7 +270,7 @@ button:active { transform: scale(0.92); }
     <div id="markTools" class="hidden"><button id="undoBtn" class="icon-btn btn-shadow undo-btn"><i class="fa-solid fa-rotate-left"></i></button><div class="brush-group btn-shadow"><button class="brush-btn active" data-size="0.02">小</button><button class="brush-btn" data-size="0.05">中</button><button class="brush-btn" data-size="0.1">大</button></div></div>
     <div id="baseTools">
         <button id="manualDrawBtnFloating" class="icon-btn btn-shadow" title="开始标记"><i class="fa-solid fa-pen"></i></button>
-        <button id="showTodayBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
+        <button id="showTodayBtn" class="icon-btn btn-shadow hidden" title="标记模式：只看今天标记" style="color:#007bff;"><i class="fa-solid fa-calendar-day"></i></button>
         <button id="locateBtn" class="icon-btn btn-shadow"><i class="fa-solid fa-location-crosshairs"></i></button>
         
         <div style="position: relative;">
@@ -286,7 +286,7 @@ button:active { transform: scale(0.92); }
             </div>
         </div>
 
-        <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
+        <button id="toggleTimelineBtn" class="icon-btn btn-shadow hidden" title="按日期回看探索进度" style="color:#007bff;"><i class="fa-solid fa-clock-rotate-left"></i></button>
     </div>
 </div>
 
@@ -1480,10 +1480,31 @@ button:active { transform: scale(0.92); }
         });
     }
 
-    function buildTimeline() { const timelineStartedAt = performance.now(); timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); reportDebugEvent('web_build_timeline_done', { durationMs: Math.round(performance.now() - timelineStartedAt), timelineKeys: String(timelineKeys.length) }); }
+    function buildTimeline() { const timelineStartedAt = performance.now(); timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); refreshTimelineButtonVisibility(); reportDebugEvent('web_build_timeline_done', { durationMs: Math.round(performance.now() - timelineStartedAt), timelineKeys: String(timelineKeys.length) }); }
     function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
     document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
-    let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => { viewTimelineExpanded = !viewTimelineExpanded; e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff'; document.getElementById('timelineContainer').classList.toggle('expanded'); };
+    function refreshTimelineButtonVisibility() {
+        const btn = document.getElementById('toggleTimelineBtn');
+        const container = document.getElementById('timelineContainer');
+        if (!btn) return;
+        if (isEditMode) {
+            btn.classList.add('hidden');
+            container?.classList.remove('expanded');
+            return;
+        }
+        btn.classList.remove('hidden');
+        btn.style.opacity = timelineKeys.length > 0 ? '1' : '0.55';
+        btn.title = timelineKeys.length > 0 ? '按日期回看探索进度' : '日期缓存正在准备或暂无每日数据';
+    }
+    let viewTimelineExpanded = false; document.getElementById('toggleTimelineBtn').onclick = (e) => {
+        if (timelineKeys.length === 0) {
+            alert('当前还没有可按日期回看的缓存。\n如果刚升级或刚完成原生缓存修复，请等待一次数据准备完成后再试。');
+            return;
+        }
+        viewTimelineExpanded = !viewTimelineExpanded;
+        e.currentTarget.style.color = viewTimelineExpanded ? '#dc3545' : '#007bff';
+        document.getElementById('timelineContainer').classList.toggle('expanded');
+    };
     const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     const mainToggleContainer = document.getElementById('mainToggleContainer');
 
@@ -1716,7 +1737,7 @@ button:active { transform: scale(0.92); }
             });
             //#endregion
             buildTimeline();
-            if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
+            refreshTimelineButtonVisibility();
             renderLayers();
             const caughtUpIncrementally = await flushPendingNativeIncrementalSync();
             if (!caughtUpIncrementally) hydrateNativeRenderCacheAfterBoot();
@@ -1772,8 +1793,7 @@ button:active { transform: scale(0.92); }
             updateStatsUI();
             if (overlayToken) appendBlockingOverlayLine('重建时间线', true, overlayToken);
             buildTimeline();
-            if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
-            else document.getElementById('toggleTimelineBtn').classList.add('hidden');
+            refreshTimelineButtonVisibility();
             if (overlayToken) appendBlockingOverlayLine('渲染图层', true, overlayToken);
             renderLayers();
         } finally {
@@ -1802,7 +1822,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.98',
+            appVersion: 'v0.1.99',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -2313,7 +2333,7 @@ button:active { transform: scale(0.92); }
                 durationMs: Math.round(performance.now() - timelineStartedAt),
                 totalMs: Math.round(performance.now() - finishStartedAt)
             });
-            if(timelineKeys.length > 0) document.getElementById('toggleTimelineBtn').classList.remove('hidden'); 
+            refreshTimelineButtonVisibility();
             if(isMobile) { map.dragging.enable(); document.getElementById('statsPanel').classList.remove('minimized'); }
             
             appendBlockingOverlayLine('渲染图层', true, overlayToken);
@@ -2564,7 +2584,7 @@ button:active { transform: scale(0.92); }
         historyStack = [];
         updateStatsUI();
         buildTimeline();
-        if(timelineKeys.length > 0 && !isEditMode) document.getElementById('toggleTimelineBtn').classList.remove('hidden');
+        refreshTimelineButtonVisibility();
         renderLayers();
         await DataManager.saveData(appData);
         return true;
