@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.100 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.101 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1503,9 +1503,39 @@ button:active { transform: scale(0.92); }
         });
     }
 
-    function buildTimeline() { const timelineStartedAt = performance.now(); timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort(); fogCache = [turf.polygon(worldCoords)]; let currentFog = fogCache[0]; for(let key of timelineKeys) { try { let newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]); currentFog = newFog ? newFog : currentFog; } catch(e) {} fogCache.push(currentFog); } const slider = document.getElementById('timelineSlider'); slider.max = timelineKeys.length; slider.value = timelineKeys.length; updateTimelineLabel(); refreshTimelineButtonVisibility(); reportDebugEvent('web_build_timeline_done', { durationMs: Math.round(performance.now() - timelineStartedAt), timelineKeys: String(timelineKeys.length) }); }
+    function buildTimeline() {
+        const timelineStartedAt = performance.now();
+        timelineKeys = Object.keys(appData.renderCache.dailyExplored).sort();
+        fogCache = [turf.polygon(worldCoords)];
+        const slider = document.getElementById('timelineSlider');
+        slider.max = timelineKeys.length;
+        slider.value = timelineKeys.length;
+        updateTimelineLabel();
+        refreshTimelineButtonVisibility();
+        reportDebugEvent('web_build_timeline_done', {
+            durationMs: Math.round(performance.now() - timelineStartedAt),
+            timelineKeys: String(timelineKeys.length),
+            lazyFogCache: 'true'
+        });
+    }
     function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
-    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = (idx === timelineKeys.length) ? appData.renderCache.globalFog : fogCache[idx]; fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
+    function getTimelineFogAtIndex(idx) {
+        if (idx === timelineKeys.length) return appData.renderCache.globalFog;
+        if (fogCache[idx]) return fogCache[idx];
+        let start = idx - 1;
+        while (start > 0 && !fogCache[start]) start--;
+        let currentFog = fogCache[start] || turf.polygon(worldCoords);
+        for (let i = start; i < idx; i++) {
+            const key = timelineKeys[i];
+            try {
+                const newFog = turf.difference(currentFog, appData.renderCache.dailyExplored[key]);
+                currentFog = newFog || currentFog;
+            } catch(e) {}
+            fogCache[i + 1] = currentFog;
+        }
+        return fogCache[idx] || currentFog;
+    }
+    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = getTimelineFogAtIndex(idx); fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
     function refreshTimelineButtonVisibility() {
         const btn = document.getElementById('toggleTimelineBtn');
         const container = document.getElementById('timelineContainer');
@@ -1766,15 +1796,15 @@ button:active { transform: scale(0.92); }
                 sinceAppStartMs: Math.round(heavyStart - debugStartupMarks.appStart)
             });
             //#endregion
+            if (!window.__fogStartupLocateRequested && navigator.geolocation) {
+                window.__fogStartupLocateRequested = true;
+                ensureStartupLocationMarker('init_data_bootstrap');
+            }
             buildTimeline();
             refreshTimelineButtonVisibility();
             renderLayers();
             const caughtUpIncrementally = await flushPendingNativeIncrementalSync();
             if (!caughtUpIncrementally) hydrateNativeRenderCacheAfterBoot();
-            if (!window.__fogStartupLocateRequested && navigator.geolocation) {
-                window.__fogStartupLocateRequested = true;
-                setTimeout(() => ensureStartupLocationMarker('init_data_bootstrap'), 600);
-            }
             
             // 启动时设置地图中心为最后一次的记录点
             if (!(window.AndroidBridge && location.protocol === 'file:') && appData.sourceOfTruth && appData.sourceOfTruth.tracks && appData.sourceOfTruth.tracks.length > 0) {
@@ -1852,7 +1882,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.100',
+            appVersion: 'v0.1.101',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1960,7 +1990,7 @@ button:active { transform: scale(0.92); }
                 if (!auto) setFollowCurrentLocation(true, 'locate_button');
                 focusMapOnCurrentLocation(lat, lng, {
                     reason: auto ? 'startup_locate' : 'manual_locate',
-                    force: !auto,
+                    force: !auto || !window.__fogHasFocusedCurrentLocation,
                     follow: !auto,
                     zoom: 16
                 });
@@ -1982,7 +2012,7 @@ button:active { transform: scale(0.92); }
             }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
         } else { alert('当前环境不支持定位'); }
     }
-    document.getElementById('locateBtn').onclick = () => locateMe({ recordCurrentPoint: true }); 
+    document.getElementById('locateBtn').onclick = () => locateMe({ recordCurrentPoint: false }); 
 
     let isAutoRecording = false, watchId = null, wakeLock = null, livePath = [], livePolyline = null;
     let nativeDraftPolyline = null;
