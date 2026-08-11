@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.99 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.100 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -423,8 +423,29 @@ button:active { transform: scale(0.92); }
         const ts = Number(timestamp) || 0;
         return ts > 0 && (Date.now() - ts) <= maxAgeMs;
     }
+    window.__fogFollowCurrentLocation = false;
+    function setFollowCurrentLocation(enabled, reason = 'unknown') {
+        window.__fogFollowCurrentLocation = !!enabled;
+        reportDebugEvent('web_follow_current_location_changed', {
+            enabled: String(window.__fogFollowCurrentLocation),
+            reason
+        });
+    }
+    map.on('dragstart', () => {
+        if (window.__fogFollowCurrentLocation) setFollowCurrentLocation(false, 'user_drag_map');
+    });
     function focusMapOnCurrentLocation(lat, lng, options = {}) {
-        const { reason = 'unknown', force = false, zoom = 16, timestamp = Date.now() } = options;
+        const { reason = 'unknown', force = false, zoom = 16, timestamp = Date.now(), follow = false } = options;
+        if (!force && !follow && !window.__fogFollowCurrentLocation) {
+            reportDebugEvent('web_focus_current_location_skipped', {
+                reason,
+                lat: String(lat),
+                lng: String(lng),
+                timestamp: String(timestamp),
+                follow: 'false'
+            });
+            return false;
+        }
         const alreadyFocused = !!window.__fogHasFocusedCurrentLocation;
         const previousFocusedAt = Number(window.__fogFocusedCurrentLocationAt || 0);
         const canUpgradeFocusedLocation = timestamp > previousFocusedAt;
@@ -434,7 +455,8 @@ button:active { transform: scale(0.92); }
                 lat: String(lat),
                 lng: String(lng),
                 timestamp: String(timestamp),
-                previousFocusedAt: String(previousFocusedAt)
+                previousFocusedAt: String(previousFocusedAt),
+                follow: String(window.__fogFollowCurrentLocation)
             });
             return false;
         }
@@ -446,6 +468,7 @@ button:active { transform: scale(0.92); }
             lat: String(lat),
             lng: String(lng),
             force: String(force),
+            follow: String(window.__fogFollowCurrentLocation),
             zoom: String(zoom),
             timestamp: String(timestamp)
         });
@@ -719,8 +742,8 @@ button:active { transform: scale(0.92); }
         const hydrateStartedAt = performance.now();
         const requestedBackground = !!window.__fogHydrateNativeInBackground;
         const visibleNow = document.visibilityState === 'visible';
-        const runInBackground = requestedBackground && !visibleNow;
-        const overlayToken = runInBackground ? null : showBlockingOverlay('正在准备地图数据...');
+        const runInBackground = true;
+        const overlayToken = null;
         if (overlayToken) appendBlockingOverlayLine('读取原生存档', true, overlayToken);
         reportDebugEvent('web_native_hydration_start', {
             trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0),
@@ -740,7 +763,7 @@ button:active { transform: scale(0.92); }
                     }
                 });
                 if (overlayToken) appendBlockingOverlayLine('渲染地图图层', true, overlayToken);
-                await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: !runInBackground });
+                await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: false });
                 reportDebugEvent('web_native_hydration_done', {
                     durationMs: Math.round(performance.now() - hydrateStartedAt),
                     trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
@@ -842,7 +865,7 @@ button:active { transform: scale(0.92); }
 
     async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp, options = {}) {
         const visibleNow = document.visibilityState === 'visible';
-        const overlayToken = visibleNow ? showBlockingOverlay(options.title || '正在同步新增轨迹...') : null;
+        const overlayToken = options.showOverlay === true ? showBlockingOverlay(options.title || '正在同步新增轨迹...') : null;
         const startedAt = performance.now();
         reportDebugEvent('web_native_archive_incremental_apply_start', {
             currentLatestTimestamp: String(currentLatestTimestamp),
@@ -1508,6 +1531,11 @@ button:active { transform: scale(0.92); }
     const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     const mainToggleContainer = document.getElementById('mainToggleContainer');
 
+    function resetManualDrawFloatingButton() {
+        document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i>';
+        document.getElementById('manualDrawBtnFloating').title = '开始标记';
+    }
+
     function updateMainBtnUI(stateOverride) {
         window.__fogEditModeActive = isEditMode;
         if (stateOverride === 'locating') {
@@ -1529,6 +1557,7 @@ button:active { transform: scale(0.92); }
         
         if (!isEditMode && !isAutoRecording) { 
             mainToggleContainer.classList.remove('is-active', 'is-tracking'); 
+            resetManualDrawFloatingButton();
             if (!window.__fogNativeTrackMode) document.getElementById('trackingStatusPanel').classList.add('hidden');
             if(isMobile) document.getElementById('statsPanel').classList.remove('minimized');
             if (window.__fogSkipNextIdleRender) window.__fogSkipNextIdleRender = false;
@@ -1541,8 +1570,7 @@ button:active { transform: scale(0.92); }
             mainToggleContainer.classList.remove('is-tracking');
             if(isMobile) document.getElementById('statsPanel').classList.add('minimized');
         } else {
-            document.getElementById('manualDrawBtnFloating').innerHTML = '<i class="fa-solid fa-pen"></i>';
-            document.getElementById('manualDrawBtnFloating').title = '开始标记';
+            resetManualDrawFloatingButton();
         }
     }
 
@@ -1568,8 +1596,10 @@ button:active { transform: scale(0.92); }
         const overlayTitle = trackSource === 'web_draw'
             ? '正在合并标记数据...'
             : (trackSource === 'manual_locate' ? '正在记录当前位置...' : '正在恢复轨迹数据...');
-        const overlayToken = showBlockingOverlay(overlayTitle);
-        appendBlockingOverlayLine('简化轨迹点', true, overlayToken);
+        const shouldShowTrackOverlay = !String(trackSource || '').startsWith('auto_track');
+        const overlayToken = shouldShowTrackOverlay ? showBlockingOverlay(overlayTitle) : null;
+        const addTrackOverlayLine = (text) => { if (overlayToken) appendBlockingOverlayLine(text, true, overlayToken); };
+        addTrackOverlayLine('简化轨迹点');
         let simplifiedCoords = coordsArray;
         const trackBrushRadius = getTrackBrushRadius(trackSource);
         const simplifyStartedAt = performance.now();
@@ -1589,7 +1619,7 @@ button:active { transform: scale(0.92); }
             encodedPath: PolylineUtil.encode(simplifiedCoords),
             bbox: getBbox(simplifiedCoords)
         };
-        appendBlockingOverlayLine('生成探索范围', true, overlayToken);
+        addTrackOverlayLine('生成探索范围');
         const maskStartedAt = performance.now();
         let mask; if(simplifiedCoords.length < 2) mask = turf.buffer(turf.point(simplifiedCoords[0]), trackBrushRadius, {units: 'kilometers'}); else mask = turf.buffer(turf.lineString(simplifiedCoords), trackBrushRadius, {units: 'kilometers'});
         mask = turf.truncate(turf.simplify(mask, {tolerance: 0.0001, highQuality: false}), {precision: 5}); 
@@ -1599,7 +1629,7 @@ button:active { transform: scale(0.92); }
         });
         await yieldToMainThread();
         try {
-            appendBlockingOverlayLine('合并迷雾数据', true, overlayToken);
+            addTrackOverlayLine('合并迷雾数据');
             const diffStartedAt = performance.now();
             let newFog = turf.difference(appData.renderCache.globalFog, mask);
             reportDebugEvent('web_process_track_difference_done', {
@@ -1625,7 +1655,7 @@ button:active { transform: scale(0.92); }
             }
             await yieldToMainThread();
             if (shouldPersistTrack && window.AndroidBridge && window.AndroidBridge.appendNativeTrackJson) {
-                appendBlockingOverlayLine('写入原生存档', true, overlayToken);
+                addTrackOverlayLine('写入原生存档');
                 try {
                     parseNativeBridgeResult(
                         window.AndroidBridge.appendNativeTrackJson(JSON.stringify(trackRecord)),
@@ -1637,7 +1667,7 @@ button:active { transform: scale(0.92); }
                     throw nativeErr;
                 }
             }
-            appendBlockingOverlayLine('刷新地图图层', true, overlayToken);
+            addTrackOverlayLine('刷新地图图层');
             updateStatsUI(); renderLayers(); await DataManager.saveData(appData); 
             reportDebugEvent('web_process_track_done', {
                 source: trackSource,
@@ -1655,7 +1685,7 @@ button:active { transform: scale(0.92); }
             });
             console.error(err);
         } finally {
-            clearBlockingOverlay(overlayToken);
+            if (overlayToken) clearBlockingOverlay(overlayToken);
         }
     }
 
@@ -1822,7 +1852,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.99',
+            appVersion: 'v0.1.100',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -1927,9 +1957,11 @@ button:active { transform: scale(0.92); }
             navigator.geolocation.getCurrentPosition(async pos => {
                 let lat = pos.coords.latitude, lng = pos.coords.longitude; 
                 updateCurrentLocationMarker(lat, lng);
+                if (!auto) setFollowCurrentLocation(true, 'locate_button');
                 focusMapOnCurrentLocation(lat, lng, {
                     reason: auto ? 'startup_locate' : 'manual_locate',
                     force: !auto,
+                    follow: !auto,
                     zoom: 16
                 });
                 if (recordCurrentPoint) {
@@ -2143,7 +2175,7 @@ button:active { transform: scale(0.92); }
                 livePolyline = L.polyline(latlngs, {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
                 
                 const lastPt = livePath[livePath.length-1];
-                map.panTo([lastPt[1], lastPt[0]]);
+                if (window.__fogFollowCurrentLocation) map.panTo([lastPt[1], lastPt[0]]);
             }
             
             thumb.style.transform = `translateX(0px)`;
@@ -2236,7 +2268,7 @@ button:active { transform: scale(0.92); }
                         let r = (brushRadiusKm * 1000) / (40075016 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8));
                         livePolyline = L.polyline([[lat, lng]], {color: 'rgba(40,167,69,0.8)', weight: Math.max(r*2, 4), lineCap: 'round', dashArray: '5, 8'}).addTo(map);
                     } else { livePolyline.addLatLng([lat, lng]); }
-                    map.panTo([lat, lng]);
+                    if (window.__fogFollowCurrentLocation) map.panTo([lat, lng]);
                 }
                 
                 // 【极速防丢草稿保存】只保存坐标数组，不调用 Turf 耗时运算
@@ -2416,9 +2448,11 @@ button:active { transform: scale(0.92); }
             if (isEditMode) {
                 startDraw(map.mouseEventToLatLng(e)); 
             } else {
+                if (window.__fogFollowCurrentLocation) setFollowCurrentLocation(false, 'user_mouse_drag_map');
                 isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
             }
         } else if (e.button === 2) { 
+            if (window.__fogFollowCurrentLocation) setFollowCurrentLocation(false, 'user_mouse_drag_map');
             e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing'; 
         } 
     });
