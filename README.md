@@ -81,6 +81,15 @@
 
 ---
 
+## [v0.1.102] - 2026-08-11
+### 🧊 Smooth Tracking Hot Path Optimization (追踪高频链路优化)
+* **移除注入阶段全量 Turf 重建**：APK Kotlin 注入脚本不再在页面加载早期执行 `exportNativeArchiveJson + normalize + turf union/difference`，避免打开阶段被早期全量重建卡住。
+* **追踪中增量同步合批刷新**：Native 新增轨迹同步时先合入内存，追踪中延迟合批刷新面积、时光机、地图图层和本地缓存，避免每个增量都触发 `buildTimeline/renderLayers/localforage`。
+* **避免逐条轨迹计算总面积**：增量应用单条轨迹时不再每条执行 `calcTotalArea()`，改为 UI flush 时批量计算一次。
+* **停止追踪时立即落盘刷新**：追踪停止后会主动 flush 延迟的增量 UI/缓存，保证最终地图和本地缓存及时一致。
+
+---
+
 ## [v0.1.101] - 2026-08-11
 ### 🚀 Startup & Locate UX Fixes (启动与定位体验修复)
 * **修复点击定位触发阻塞运算**：定位按钮现在只负责居中/跟随展示，不再写入“当前位置点轨迹”，因此不会触发 Turf 合并和“正在记录当前位置”阻塞处理。

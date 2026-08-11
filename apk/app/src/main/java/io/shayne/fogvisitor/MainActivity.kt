@@ -222,40 +222,6 @@ class MainActivity : AppCompatActivity() {
                 archive.renderCache = archive.renderCache || { globalFog: null, globalExplored: null, dailyExplored: {}, regionsCache: {} };
                 archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
                 archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
-
-                const hasDailyCache = Object.keys(archive.renderCache.dailyExplored || {}).length > 0;
-                if ((archive.renderCache.globalFog || archive.renderCache.globalExplored) && hasDailyCache) {
-                  return archive;
-                }
-
-                let cumulativeExplored = null;
-                archive.renderCache.dailyExplored = {};
-                const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-                for (const track of tracks) {
-                  if (!track || !track.encodedPath) continue;
-                  let coords = PolylineUtil.decode(track.encodedPath);
-                  if (!coords || !coords.length) continue;
-                  const radius = track.brushRadiusKm || 0.02;
-                  let mask;
-                  try {
-                    if (coords.length === 1) mask = turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' });
-                    else mask = turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
-                    cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
-                    const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
-                    archive.renderCache.dailyExplored[dateKey] = archive.renderCache.dailyExplored[dateKey]
-                      ? turf.union(archive.renderCache.dailyExplored[dateKey], mask)
-                      : mask;
-                  } catch (e) {
-                    console.warn('Failed to rebuild track mask', e, track);
-                  }
-                }
-
-                archive.renderCache.globalExplored = cumulativeExplored;
-                archive.renderCache.globalFog = cumulativeExplored
-                  ? turf.difference(turf.polygon(worldCoords), cumulativeExplored)
-                  : turf.polygon(worldCoords);
-                archive.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
                 return archive;
               };
               window.__fogNormalizeNativeArchiveForWeb = normalizeNativeArchiveForWeb;
@@ -282,11 +248,8 @@ class MainActivity : AppCompatActivity() {
                   return false;
                 }
 
-                const nativeArchive = normalizeNativeArchiveForWeb(JSON.parse(AndroidBridge.exportNativeArchiveJson()));
-                if (shouldReplaceLocal) {
-                  await localforage.setItem('fog_of_world_data_v5', nativeArchive);
-                  return true;
-                }
+                window.__fogPendingNativeHydration = true;
+                window.__fogHydrateNativeInBackground = true;
                 return false;
               };
 
@@ -483,6 +446,7 @@ class MainActivity : AppCompatActivity() {
                       window.__fogNativeTrackMode = false;
                       mainToggle?.classList.remove('is-tracking');
                       trackingDock?.classList.remove('hidden');
+                      if (window.flushNativeIncrementalUi) window.flushNativeIncrementalUi('native_tracking_stopped');
                       refreshNativeTrackingStatus();
                     }
                   };

@@ -201,7 +201,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.101 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.102 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -853,7 +853,6 @@ button:active { transform: scale(0.92); }
         appData.renderCache.dailyExplored[dateKey] = appData.renderCache.dailyExplored[dateKey]
             ? turf.union(appData.renderCache.dailyExplored[dateKey], mask)
             : mask;
-        appData.metadata.totalAreaKm2 = calcTotalArea();
         return true;
     }
 
@@ -863,15 +862,52 @@ button:active { transform: scale(0.92); }
         await yieldToMainThread();
     }
 
+    let nativeIncrementalUiFlushTimer = null;
+    let nativeIncrementalUiFlushPromise = null;
+    async function flushNativeIncrementalUi(reason = 'unknown') {
+        if (nativeIncrementalUiFlushPromise) return nativeIncrementalUiFlushPromise;
+        nativeIncrementalUiFlushPromise = (async () => {
+            const startedAt = performance.now();
+            nativeIncrementalUiFlushTimer = null;
+            appData.metadata.totalAreaKm2 = calcTotalArea();
+            updateStatsUI();
+            buildTimeline();
+            renderLayers();
+            await persistAppDataToLocalCache(appData);
+            reportDebugEvent('web_native_incremental_ui_flush_done', {
+                reason,
+                durationMs: String(Math.round(performance.now() - startedAt)),
+                trackCount: String(appData?.sourceOfTruth?.tracks?.length || 0)
+            });
+        })().finally(() => {
+            nativeIncrementalUiFlushPromise = null;
+        });
+        return nativeIncrementalUiFlushPromise;
+    }
+
+    function scheduleNativeIncrementalUiFlush(reason = 'unknown', delayMs = 15000) {
+        if (nativeIncrementalUiFlushTimer) clearTimeout(nativeIncrementalUiFlushTimer);
+        nativeIncrementalUiFlushTimer = setTimeout(() => {
+            flushNativeIncrementalUi(reason);
+        }, delayMs);
+        reportDebugEvent('web_native_incremental_ui_flush_scheduled', {
+            reason,
+            delayMs: String(delayMs)
+        });
+    }
+    window.flushNativeIncrementalUi = flushNativeIncrementalUi;
+
     async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp, options = {}) {
         const visibleNow = document.visibilityState === 'visible';
         const overlayToken = options.showOverlay === true ? showBlockingOverlay(options.title || '正在同步新增轨迹...') : null;
         const startedAt = performance.now();
+        const deferUiFlush = options.deferUi === true || !!window.__fogNativeTrackMode;
         reportDebugEvent('web_native_archive_incremental_apply_start', {
             currentLatestTimestamp: String(currentLatestTimestamp),
             summaryTrackCount: String(summary?.trackCount || 0),
             visible: String(visibleNow),
-            reason: String(options.reason || 'unknown')
+            reason: String(options.reason || 'unknown'),
+            deferUiFlush: String(deferUiFlush)
         });
         try {
             if (overlayToken) appendBlockingOverlayLine('读取新增轨迹', true, overlayToken);
@@ -883,15 +919,14 @@ button:active { transform: scale(0.92); }
                 if (overlayToken) updateBlockingOverlayLastLine(`应用新增轨迹 ${index + 1}/${tracks.length}`, overlayToken);
             }
             if (overlayToken) appendBlockingOverlayLine('刷新地图图层', true, overlayToken);
-            updateStatsUI();
-            buildTimeline();
-            renderLayers();
-            await persistAppDataToLocalCache(appData);
+            if (deferUiFlush) scheduleNativeIncrementalUiFlush(options.reason || 'native_incremental_tracking');
+            else await flushNativeIncrementalUi(options.reason || 'native_incremental_immediate');
             reportDebugEvent('web_native_archive_incremental_apply_done', {
                 durationMs: Math.round(performance.now() - startedAt),
                 appliedTrackCount: String(tracks.length),
                 visible: String(visibleNow),
-                reason: String(options.reason || 'unknown')
+                reason: String(options.reason || 'unknown'),
+                deferUiFlush: String(deferUiFlush)
             });
         } catch (error) {
             reportDebugEvent('web_native_archive_incremental_apply_error', {
@@ -1882,7 +1917,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.101',
+            appVersion: 'v0.1.102',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
