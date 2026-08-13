@@ -81,6 +81,16 @@
 
 ---
 
+## [v0.1.103] - 2026-08-13
+### 🧭 Simpler Track Persistence Rules (简化轨迹保存规则)
+* **放宽自动追踪点接收**：原生追踪定位精度阈值从 35m 放宽到 50m，减少城市楼群/弱 GPS 场景下的漏点。
+* **简化断段规则**：连续追踪中超过 5 分钟或相邻 accepted 点超过 5km 时断段，不再清掉已有草稿；会先尝试把已有草稿保存成上一段，再从当前点开启新段。
+* **更宽容保存短段**：自动 checkpoint 最小点数从 3 降为 2，短段过滤放宽到首尾 10m 或路径 15m，仍过滤明显原地漂移。
+* **已探索区域也保存轨迹**：Native 不再因为 `already_explored` 拒绝持久化轨迹；已探索轨迹会保存到 `sourceOfTruth.tracks`，但不重复增加 explored cells。
+* **Web 手动画线始终保存**：APK WebView 手动标记即使没有新增迷雾面积，也会保存轨迹，只是不更新 fog/面积。
+
+---
+
 ## [v0.1.102] - 2026-08-11
 ### 🧊 Smooth Tracking Hot Path Optimization (追踪高频链路优化)
 * **移除注入阶段全量 Turf 重建**：APK Kotlin 注入脚本不再在页面加载早期执行 `exportNativeArchiveJson + normalize + turf union/difference`，避免打开阶段被早期全量重建卡住。

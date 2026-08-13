@@ -143,6 +143,66 @@ class NativeTrackStore(private val context: Context) {
         }
     }
 
+    fun checkpointDraftForSegmentBreak(
+        source: String = "android_background_track_segment",
+        brushRadiusKm: Double = 0.02,
+        minPointCount: Int = 2
+    ): TrackRecord? {
+        return runStore {
+            val points = readDraftPoints()
+            appendTrackingDebugEvent(
+                "native_segment_break_checkpoint_check",
+                mapOf(
+                    "source" to source,
+                    "draftPointCount" to points.size.toString(),
+                    "minPointCount" to minPointCount.toString()
+                )
+            )
+            if (points.size < minPointCount || shouldDiscardCheckpoint(points)) {
+                clearDraft()
+                updateStatus(
+                    isTracking = true,
+                    shouldTrack = true,
+                    draftPointCount = 0,
+                    lastPointAt = System.currentTimeMillis(),
+                    lastLng = points.lastOrNull()?.getOrNull(0),
+                    lastLat = points.lastOrNull()?.getOrNull(1)
+                )
+                return@runStore null
+            }
+
+            val track = TrackRecord(
+                id = "trk_${System.currentTimeMillis()}_${(100..999).random()}",
+                timestamp = System.currentTimeMillis(),
+                source = source,
+                brushRadiusKm = brushRadiusKm,
+                encodedPath = PolylineCodec.encode(points),
+                bbox = PolylineCodec.calculateBbox(points)
+            )
+            val persistResult = persistTrackCandidate(track)
+            clearDraft()
+            updateStatus(
+                isTracking = true,
+                shouldTrack = true,
+                draftPointCount = 0,
+                lastPointAt = System.currentTimeMillis(),
+                lastLng = points.lastOrNull()?.getOrNull(0),
+                lastLat = points.lastOrNull()?.getOrNull(1)
+            )
+            appendTrackingDebugEvent(
+                "native_segment_break_checkpoint_result",
+                mapOf(
+                    "source" to source,
+                    "draftPointCount" to points.size.toString(),
+                    "persisted" to persistResult.persisted.toString(),
+                    "reason" to persistResult.reason,
+                    "trackCount" to persistResult.trackCount.toString()
+                )
+            )
+            persistResult.track
+        }
+    }
+
     fun finalizeDraftToTrack(
         source: String = "android_background_track",
         brushRadiusKm: Double = 0.02
@@ -696,43 +756,33 @@ class NativeTrackStore(private val context: Context) {
     private fun persistTrackCandidate(track: TrackRecord): PersistTrackResult {
         val candidateCells = collectTrackCells(track)
         val hasNewExploredCells = candidateCells.any { it !in getExploredCells() }
-        if (!hasNewExploredCells) {
-            appendTrackingDebugEvent(
-                "native_persist_rejected",
-                mapOf(
-                    "trackId" to track.id,
-                    "reason" to "already_explored",
-                    "candidateCells" to candidateCells.size.toString()
-                )
-            )
-            return PersistTrackResult(
-                persisted = false,
-                reason = "already_explored",
-                trackCount = dao.getTrackCount(),
-                track = null
-            )
-        }
         val latestTrack = dao.getLatestTrack()?.toModel()
         val trackToPersist = if (latestTrack != null && shouldMergeIntoLatest(latestTrack, track)) {
             mergeTracks(latestTrack, track)
         } else {
             track
         }
+        val persistReason = if (trackToPersist.id == track.id) {
+            if (hasNewExploredCells) "persisted" else "persisted_already_explored"
+        } else {
+            if (hasNewExploredCells) "merged_into_latest" else "merged_already_explored"
+        }
         dao.upsertTrack(trackToPersist.toEntity())
-        appendExploredCells(candidateCells)
+        if (hasNewExploredCells) appendExploredCells(candidateCells)
         appendTrackingDebugEvent(
             "native_persist_result",
             mapOf(
                 "trackId" to track.id,
                 "storedTrackId" to trackToPersist.id,
-                "reason" to if (trackToPersist.id == track.id) "persisted" else "merged_into_latest",
+                "reason" to persistReason,
                 "candidateCells" to candidateCells.size.toString(),
+                "hasNewExploredCells" to hasNewExploredCells.toString(),
                 "trackCount" to dao.getTrackCount().toString()
             )
         )
         return PersistTrackResult(
             persisted = true,
-            reason = if (trackToPersist.id == track.id) "persisted" else "merged_into_latest",
+            reason = persistReason,
             trackCount = dao.getTrackCount(),
             track = trackToPersist
         )
@@ -1028,8 +1078,8 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_LAST_ACCURACY_BITS = "last_accuracy_bits"
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
-        private const val MIN_MOVEMENT_FOR_TRACK_METERS = 12.0
-        private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 28.0
+        private const val MIN_MOVEMENT_FOR_TRACK_METERS = 10.0
+        private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 15.0
         private const val CELL_SIZE_METERS = 20.0
         private const val MAX_MERGE_GAP_MS = 3 * 60 * 1000L
         private const val MAX_MERGE_DISTANCE_METERS = 35.0

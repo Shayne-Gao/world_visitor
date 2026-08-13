@@ -275,7 +275,7 @@ class TrackingForegroundService : Service() {
             )
         )
         if (!shouldPersistLocation(location)) return
-        maybeResetDraftAfterLongGap()
+        maybeCheckpointDraftBeforeSegmentBreak(location)
         //#region debug-point apk-ui-storage-regression-service-location-result
         reportDebugEvent(
             "service_location_result",
@@ -295,7 +295,7 @@ class TrackingForegroundService : Service() {
             lat = location.latitude,
             accuracy = location.accuracy.toDouble()
         )
-        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 3)
+        val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 2)
         lastAcceptedLocation = location
         lastAcceptedAt = System.currentTimeMillis()
         //#region debug-point auto-tracking-broken-service-point-persisted
@@ -366,18 +366,22 @@ class TrackingForegroundService : Service() {
         return true
     }
 
-    private fun maybeResetDraftAfterLongGap() {
+    private fun maybeCheckpointDraftBeforeSegmentBreak(location: Location) {
+        val previous = lastAcceptedLocation ?: return
         if (lastAcceptedAt <= 0L) return
         val elapsedMs = System.currentTimeMillis() - lastAcceptedAt
-        if (elapsedMs <= MAX_TRACK_GAP_MS) return
+        val distanceMeters = location.distanceTo(previous)
+        if (elapsedMs <= MAX_TRACK_GAP_MS && distanceMeters <= MAX_TRACK_GAP_DISTANCE_METERS) return
         val existingDraftCount = trackStore.readDraftPoints().size
         if (existingDraftCount <= 0) return
-        trackStore.clearDraft()
+        val checkpointed = trackStore.checkpointDraftForSegmentBreak(minPointCount = 2)
         reportDebugEvent(
-            "service_track_gap_reset",
+            "service_track_segment_break",
             mapOf(
                 "elapsedMs" to elapsedMs.toString(),
-                "clearedDraftCount" to existingDraftCount.toString()
+                "distanceMeters" to distanceMeters.toString(),
+                "draftPointCount" to existingDraftCount.toString(),
+                "checkpointed" to (checkpointed != null).toString()
             )
         )
     }
@@ -451,13 +455,14 @@ class TrackingForegroundService : Service() {
 
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
-        private const val MAX_ACCEPTED_ACCURACY_METERS = 35f
+        private const val MAX_ACCEPTED_ACCURACY_METERS = 50f
         private const val MIN_POINT_DISTANCE_METERS = 8f
         private const val MIN_SLOW_MOVEMENT_DISTANCE_METERS = 8f
         private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 18f
         private const val ACCURACY_DISTANCE_FACTOR = 0.6f
         private const val MAX_POINT_IDLE_MS = 20_000L
-        private const val MAX_TRACK_GAP_MS = 120_000L
+        private const val MAX_TRACK_GAP_MS = 5 * 60_000L
+        private const val MAX_TRACK_GAP_DISTANCE_METERS = 5_000f
         private const val WATCHDOG_TICK_MS = 15_000L
         private const val LOCATION_CALLBACK_STALL_MS = 20_000L
     }
