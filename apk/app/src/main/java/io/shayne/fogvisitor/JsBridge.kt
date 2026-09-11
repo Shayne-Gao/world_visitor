@@ -1,10 +1,18 @@
 package io.shayne.fogvisitor
 
+import android.Manifest
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -24,6 +32,7 @@ class JsBridge(
 
     private val trackStore by lazy { NativeTrackStore(context) }
     private val cloudPrefs by lazy { context.getSharedPreferences("fog_cloud_archive", Context.MODE_PRIVATE) }
+    private val trackingConfigPrefs by lazy { context.getSharedPreferences(TrackingConfig.PREFS_NAME, Context.MODE_PRIVATE) }
 
     @JavascriptInterface
     fun startBackgroundTracking() {
@@ -52,7 +61,56 @@ class JsBridge(
     fun getAppFlavor(): String = "android-apk-shell"
 
     @JavascriptInterface
-    fun getNativeTrackingStatus(): String = trackStore.getStatusJson()
+    fun getNativeTrackingStatus(): String {
+        val status = JSONObject(trackStore.getStatusJson())
+        val backgroundRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        status.put("hasForegroundLocationPermission", hasForegroundLocationPermission())
+        status.put("hasBackgroundLocationPermission", hasBackgroundLocationPermission(backgroundRequired))
+        status.put("backgroundLocationRequired", backgroundRequired)
+        status.put("batteryOptimizationIgnored", isBatteryOptimizationIgnored())
+        status.put("batteryOptimizationCheckAvailable", Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+        status.put("maxSpeedMetersPerSecond", getMaxTrackingSpeedMetersPerSecond())
+        return status.toString()
+    }
+
+    @JavascriptInterface
+    fun openBackgroundLocationSettings(): String {
+        return openSettingsIntent(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            },
+            "background_location_settings"
+        )
+    }
+
+    @JavascriptInterface
+    fun openBatteryOptimizationSettings(): String {
+        val action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+        } else {
+            Settings.ACTION_SETTINGS
+        }
+        return openSettingsIntent(Intent(action), "battery_optimization_settings")
+    }
+
+    @JavascriptInterface
+    fun setMaxTrackingSpeedMetersPerSecond(value: Double): String {
+        val coerced = value.toFloat().coerceIn(
+            TrackingConfig.MIN_MAX_SPEED_METERS_PER_SECOND,
+            TrackingConfig.MAX_MAX_SPEED_METERS_PER_SECOND
+        )
+        trackingConfigPrefs.edit()
+            .putFloat(TrackingConfig.KEY_MAX_SPEED_METERS_PER_SECOND, coerced)
+            .apply()
+        trackStore.appendTrackingDebugEvent(
+            "native_tracking_speed_threshold_updated",
+            mapOf("maxSpeedMps" to coerced.toString())
+        )
+        return JSONObject()
+            .put("ok", true)
+            .put("maxSpeedMetersPerSecond", coerced)
+            .toString()
+    }
 
     @JavascriptInterface
     fun exportNativeArchiveJson(): String = trackStore.exportArchiveJson()
@@ -121,6 +179,67 @@ class JsBridge(
             .put("slotId", cloudPrefs.getString("slotId", "") ?: "")
             .put("hasToken", !cloudPrefs.getString("token", "").isNullOrBlank())
             .toString()
+    }
+
+    private fun hasForegroundLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasBackgroundLocationPermission(backgroundRequired: Boolean): Boolean {
+        if (!backgroundRequired) return true
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun isBatteryOptimizationIgnored(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            ?: return false
+        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    private fun getMaxTrackingSpeedMetersPerSecond(): Float {
+        val configured = trackingConfigPrefs.getFloat(
+            TrackingConfig.KEY_MAX_SPEED_METERS_PER_SECOND,
+            TrackingConfig.DEFAULT_MAX_SPEED_METERS_PER_SECOND
+        )
+        return configured.coerceIn(
+            TrackingConfig.MIN_MAX_SPEED_METERS_PER_SECOND,
+            TrackingConfig.MAX_MAX_SPEED_METERS_PER_SECOND
+        )
+    }
+
+    private fun openSettingsIntent(intent: Intent, source: String): String {
+        return runCatching {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            trackStore.appendTrackingDebugEvent(
+                "native_open_settings",
+                mapOf("source" to source)
+            )
+            JSONObject().put("ok", true).toString()
+        }.getOrElse { error ->
+            trackStore.appendTrackingDebugEvent(
+                "native_open_settings_failed",
+                mapOf(
+                    "source" to source,
+                    "error" to (error.message ?: error.javaClass.simpleName)
+                )
+            )
+            JSONObject()
+                .put("ok", false)
+                .put("error", error.message ?: error.javaClass.simpleName)
+                .toString()
+        }
     }
 
     @JavascriptInterface

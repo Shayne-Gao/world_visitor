@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingImportMergeMode = false
     private var importPickerActive = false
     private var pendingExportFileName = "fog_apk_export.json"
+    private var backgroundPermissionRequestInFlight = false
 
     private val foregroundPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -49,10 +50,14 @@ class MainActivity : AppCompatActivity() {
 
     private val backgroundPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            backgroundPermissionRequestInFlight = false
             reportDebugEvent(
                 "native_background_location_permission_result",
                 mapOf("granted" to granted.toString())
             )
+            if (granted) {
+                ensureAutoTrackingStarted()
+            }
         }
 
     private val importArchiveLauncher =
@@ -119,7 +124,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureAutoTrackingStarted() {
-        if (!hasForegroundLocationPermission()) return
+        if (!hasForegroundLocationPermission()) {
+            reportDebugEvent(
+                "native_tracking_start_skipped_permission",
+                mapOf(
+                    "hasForeground" to "false",
+                    "hasBackground" to hasBackgroundLocationPermission().toString(),
+                    "backgroundRequired" to isBackgroundLocationPermissionRequired().toString()
+                )
+            )
+            return
+        }
+        if (isBackgroundLocationPermissionRequired() && !hasBackgroundLocationPermission()) {
+            reportDebugEvent(
+                "native_tracking_background_permission_missing",
+                mapOf(
+                    "hasForeground" to "true",
+                    "hasBackground" to "false",
+                    "backgroundRequired" to "true"
+                )
+            )
+            requestBackgroundLocationIfNeeded()
+        }
         startNativeTrackingService()
     }
 
@@ -360,8 +386,17 @@ class MainActivity : AppCompatActivity() {
                       const segmentText = document.getElementById('trackingSegmentCountText');
                       const trackingDock = document.getElementById('trackingBottomDock');
                       const trackingActionBtn = document.getElementById('trackingActionBtn');
+                      const guideRow = document.getElementById('trackingGuideRow');
+                      const guideText = document.getElementById('trackingGuideText');
+                      const locationSettingsBtn = document.getElementById('openLocationSettingsBtn');
+                      const batterySettingsBtn = document.getElementById('openBatterySettingsBtn');
+                      const speedRow = document.getElementById('trackingSpeedRow');
+                      const speedText = document.getElementById('trackingSpeedText');
                       const lastLat = Number(status.lastLat);
                       const lastLng = Number(status.lastLng);
+                      const missingBackgroundPermission = !!status.backgroundLocationRequired && !status.hasBackgroundLocationPermission;
+                      const needsBatteryOptimizationGuide = !!status.batteryOptimizationCheckAvailable && !status.batteryOptimizationIgnored;
+                      const maxSpeedMps = Number(status.maxSpeedMetersPerSecond || 80);
                       const hasFreshCurrentPoint = window.isFreshCurrentLocationTimestamp
                         ? window.isFreshCurrentLocationTimestamp(status.lastPointAt)
                         : false;
@@ -369,12 +404,35 @@ class MainActivity : AppCompatActivity() {
                       if (gpsText) gpsText.textContent = status.isTracking ? '自动记录中' : '已暂停记录';
                       if (gpsDot) gpsDot.classList.toggle('lost', !status.isTracking);
                       if (modeText) {
-                        modeText.textContent = status.isTracking
+                        modeText.textContent = missingBackgroundPermission
+                          ? '需要“始终允许”定位权限'
+                          : needsBatteryOptimizationGuide
+                          ? '建议关闭电池优化'
+                          : status.isTracking
                           ? ('正在记录，当前小段 ' + (status.draftPointCount || 0) + ' 点')
                           : (status.shouldTrack ? '等待恢复记录' : '已暂停');
                       }
                       if (lastPointText) lastPointText.textContent = formatLastPoint(status.lastPointAt);
                       if (segmentText) segmentText.textContent = ((status.trackCount || 0) + ' 段');
+                      if (guideRow) {
+                        const shouldShowGuide = missingBackgroundPermission || needsBatteryOptimizationGuide;
+                        guideRow.classList.toggle('hidden', !shouldShowGuide);
+                        if (guideText) {
+                          guideText.textContent = missingBackgroundPermission && needsBatteryOptimizationGuide
+                            ? '后台稳定记录需要补充定位权限并关闭电池优化'
+                            : missingBackgroundPermission
+                            ? '后台记录需要授予“始终允许”定位'
+                            : '建议关闭电池优化，避免后台记录被系统限制';
+                        }
+                        locationSettingsBtn?.classList.toggle('hidden', !missingBackgroundPermission);
+                        batterySettingsBtn?.classList.toggle('hidden', !needsBatteryOptimizationGuide);
+                      }
+                      if (speedRow) speedRow.classList.remove('hidden');
+                      if (speedText) speedText.textContent = Math.round(maxSpeedMps) + ' m/s';
+                      document.querySelectorAll('[data-speed-mps]').forEach((btn) => {
+                        const speed = Number(btn.dataset.speedMps || 0);
+                        btn.classList.toggle('active', Math.abs(speed - maxSpeedMps) < 0.5);
+                      });
                       if (window.updateTrackingLogSummary) window.updateTrackingLogSummary(status);
                       if (trackingActionBtn) {
                         const recording = !!(status.isTracking || status.shouldTrack);
@@ -420,6 +478,11 @@ class MainActivity : AppCompatActivity() {
                           lastLat: String(status.lastLat),
                           lastLng: String(status.lastLng),
                           lastPointFresh: String(hasFreshCurrentPoint),
+                          hasForegroundLocationPermission: String(status.hasForegroundLocationPermission),
+                          hasBackgroundLocationPermission: String(status.hasBackgroundLocationPermission),
+                          backgroundLocationRequired: String(status.backgroundLocationRequired),
+                          batteryOptimizationIgnored: String(status.batteryOptimizationIgnored),
+                          maxSpeedMps: String(status.maxSpeedMetersPerSecond),
                           markerUpdated: String(markerUpdated),
                           draftPreviewPoints: String((status.draftPoints || []).length || 0),
                           nativeDebugCount: String((status.debugEvents || []).length || 0)
@@ -481,6 +544,47 @@ class MainActivity : AppCompatActivity() {
                       }
                     });
                   }
+
+                  const locationSettingsBtn = document.getElementById('openLocationSettingsBtn');
+                  if (locationSettingsBtn && !locationSettingsBtn.dataset.bound) {
+                    locationSettingsBtn.dataset.bound = '1';
+                    locationSettingsBtn.addEventListener('click', () => {
+                      try {
+                        AndroidBridge.openBackgroundLocationSettings();
+                        if (window.reportDebugEvent) window.reportDebugEvent('web_open_location_settings_clicked', {});
+                      } catch (err) {
+                        console.warn('Failed to open location settings', err);
+                      }
+                    });
+                  }
+
+                  const batterySettingsBtn = document.getElementById('openBatterySettingsBtn');
+                  if (batterySettingsBtn && !batterySettingsBtn.dataset.bound) {
+                    batterySettingsBtn.dataset.bound = '1';
+                    batterySettingsBtn.addEventListener('click', () => {
+                      try {
+                        AndroidBridge.openBatteryOptimizationSettings();
+                        if (window.reportDebugEvent) window.reportDebugEvent('web_open_battery_settings_clicked', {});
+                      } catch (err) {
+                        console.warn('Failed to open battery settings', err);
+                      }
+                    });
+                  }
+
+                  document.querySelectorAll('[data-speed-mps]').forEach((btn) => {
+                    if (btn.dataset.bound) return;
+                    btn.dataset.bound = '1';
+                    btn.addEventListener('click', () => {
+                      try {
+                        const speed = Number(btn.dataset.speedMps || 80);
+                        AndroidBridge.setMaxTrackingSpeedMetersPerSecond(speed);
+                        if (window.reportDebugEvent) window.reportDebugEvent('web_speed_threshold_clicked', { speedMps: String(speed) });
+                        setTimeout(refreshNativeTrackingStatus, 150);
+                      } catch (err) {
+                        console.warn('Failed to update speed threshold', err);
+                      }
+                    });
+                  });
 
                   manualBtn.addEventListener('click', (e) => {
                     if (window.reportDebugEvent) {
@@ -621,7 +725,11 @@ class MainActivity : AppCompatActivity() {
         //#region debug-point apk-ui-storage-regression-native-start-service
         reportDebugEvent(
             "native_start_tracking_service_called",
-            mapOf("hasFine" to hasForegroundLocationPermission().toString())
+            mapOf(
+                "hasForeground" to hasForegroundLocationPermission().toString(),
+                "hasBackground" to hasBackgroundLocationPermission().toString(),
+                "backgroundRequired" to isBackgroundLocationPermissionRequired().toString()
+            )
         )
         //#endregion
         val intent = Intent(this, TrackingForegroundService::class.java).apply {
@@ -779,13 +887,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hasBackgroundLocationPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        if (!isBackgroundLocationPermissionRequired()) return true
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun isBackgroundLocationPermissionRequired(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+    }
+
     private fun requestBackgroundLocationIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (!isBackgroundLocationPermissionRequired()) return
         if (!hasForegroundLocationPermission() || hasBackgroundLocationPermission()) return
+        if (backgroundPermissionRequestInFlight) return
+        backgroundPermissionRequestInFlight = true
         backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
     }
 

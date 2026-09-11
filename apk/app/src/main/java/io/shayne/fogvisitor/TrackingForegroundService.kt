@@ -30,6 +30,7 @@ class TrackingForegroundService : Service() {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var trackStore: NativeTrackStore
+    private val trackingConfigPrefs by lazy { getSharedPreferences(TrackingConfig.PREFS_NAME, Context.MODE_PRIVATE) }
     private var locationCallback: LocationCallback? = null
     private var isExplicitStop = false
     private var lastAcceptedLocation: Location? = null
@@ -125,6 +126,12 @@ class TrackingForegroundService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
+        }
+        if (requiresBackgroundLocationPermission() && !hasBackgroundLocationPermission()) {
+            reportDebugEvent(
+                "service_background_location_permission_missing",
+                mapOf("sdk" to Build.VERSION.SDK_INT.toString())
+            )
         }
         if (locationCallback != null) {
             requestCurrentLocationProbe("existing_callback")
@@ -228,6 +235,18 @@ class TrackingForegroundService : Service() {
                 this,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requiresBackgroundLocationPermission(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+    }
+
+    private fun hasBackgroundLocationPermission(): Boolean {
+        if (!requiresBackgroundLocationPermission()) return true
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun createNotificationChannel() {
@@ -363,7 +382,32 @@ class TrackingForegroundService : Service() {
             )
             return false
         }
+        val speedMetersPerSecond = distance / maxOf(1f, elapsedMs.toFloat() / 1000f)
+        val maxAcceptedSpeed = getMaxAcceptedSpeedMetersPerSecond()
+        if (elapsedMs >= MIN_SPEED_FILTER_ELAPSED_MS && speedMetersPerSecond > maxAcceptedSpeed) {
+            reportDebugEvent(
+                "service_location_skipped_speed",
+                mapOf(
+                    "distanceMeters" to distance.toString(),
+                    "elapsedMs" to elapsedMs.toString(),
+                    "speedMps" to speedMetersPerSecond.toString(),
+                    "thresholdMps" to maxAcceptedSpeed.toString()
+                )
+            )
+            return false
+        }
         return true
+    }
+
+    private fun getMaxAcceptedSpeedMetersPerSecond(): Float {
+        val configured = trackingConfigPrefs.getFloat(
+            TrackingConfig.KEY_MAX_SPEED_METERS_PER_SECOND,
+            TrackingConfig.DEFAULT_MAX_SPEED_METERS_PER_SECOND
+        )
+        return configured.coerceIn(
+            TrackingConfig.MIN_MAX_SPEED_METERS_PER_SECOND,
+            TrackingConfig.MAX_MAX_SPEED_METERS_PER_SECOND
+        )
     }
 
     private fun maybeCheckpointDraftBeforeSegmentBreak(location: Location) {
@@ -461,8 +505,9 @@ class TrackingForegroundService : Service() {
         private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 18f
         private const val ACCURACY_DISTANCE_FACTOR = 0.6f
         private const val MAX_POINT_IDLE_MS = 20_000L
-        private const val MAX_TRACK_GAP_MS = 5 * 60_000L
-        private const val MAX_TRACK_GAP_DISTANCE_METERS = 5_000f
+        private const val MAX_TRACK_GAP_MS = 2 * 60_000L
+        private const val MAX_TRACK_GAP_DISTANCE_METERS = 1_000f
+        private const val MIN_SPEED_FILTER_ELAPSED_MS = 3_000L
         private const val WATCHDOG_TICK_MS = 15_000L
         private const val LOCATION_CALLBACK_STALL_MS = 20_000L
     }

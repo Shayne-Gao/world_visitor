@@ -42,6 +42,10 @@ button:active { transform: scale(0.92); }
 #trackingStatusPanel .tracking-toolbar { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 7px; margin-top: 1px; }
 #trackingStatusPanel .tracking-log-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: rgba(255,255,255,0.86); }
 #trackingStatusPanel .tracking-log-toggle { flex: 0 0 auto; border: 0; background: rgba(255,255,255,0.08); color: #fff; border-radius: 999px; padding: 4px 9px; font-size: 11px; cursor: pointer; }
+.tracking-guide-row, .tracking-speed-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; color: rgba(255,255,255,0.8); }
+.tracking-guide-btn, .tracking-speed-btn { border: 0; border-radius: 999px; background: rgba(96,165,250,0.2); color: #dbeafe; padding: 5px 9px; font-size: 11px; font-weight: 700; }
+.tracking-guide-btn.warning { background: rgba(245,158,11,0.22); color: #fde68a; }
+.tracking-speed-btn.active { background: rgba(34,197,94,0.28); color: #bbf7d0; }
 .tracking-action-btn { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 10px 22px; color: #fff; font-size: 14px; font-weight: 800; min-width: 132px; background: #16a34a; box-shadow: 0 6px 18px rgba(0,0,0,0.28); backdrop-filter: blur(10px); }
 .tracking-action-btn.stop { background: #dc2626; }
 .tracking-action-btn.pending { background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.78); }
@@ -201,7 +205,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.103 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.105 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -245,6 +249,17 @@ button:active { transform: scale(0.92); }
         <div class="tracking-toolbar">
             <span id="trackingLogSummary" class="tracking-log-summary">记录中，最新 --，共 0 段</span>
             <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">缩小</button>
+        </div>
+        <div id="trackingGuideRow" class="tracking-guide-row hidden">
+            <span id="trackingGuideText">后台记录需要补充系统设置</span>
+            <button id="openLocationSettingsBtn" class="tracking-guide-btn warning hidden" type="button">打开定位设置</button>
+            <button id="openBatterySettingsBtn" class="tracking-guide-btn warning hidden" type="button">打开电池设置</button>
+        </div>
+        <div id="trackingSpeedRow" class="tracking-speed-row hidden">
+            <span>速度过滤：<strong id="trackingSpeedText">80 m/s</strong></span>
+            <button class="tracking-speed-btn" type="button" data-speed-mps="80">日常</button>
+            <button class="tracking-speed-btn" type="button" data-speed-mps="120">高铁</button>
+            <button class="tracking-speed-btn" type="button" data-speed-mps="250">飞机</button>
         </div>
         <div id="trackingDebugLog"></div>
     </div>
@@ -1918,7 +1933,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.103',
+            appVersion: 'v0.1.105',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
