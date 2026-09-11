@@ -25,6 +25,7 @@ class JsBridge(
     private val context: Context,
     private val onStartTracking: () -> Unit,
     private val onStopTracking: () -> Unit,
+    private val onStopTrackingAndCloseApp: () -> Unit,
     private val onPickExport: () -> Unit,
     private val onPickImportReplace: () -> Unit,
     private val onPickImportMerge: () -> Unit
@@ -42,6 +43,11 @@ class JsBridge(
     @JavascriptInterface
     fun stopBackgroundTracking() {
         onStopTracking.invoke()
+    }
+
+    @JavascriptInterface
+    fun stopBackgroundTrackingAndCloseApp() {
+        onStopTrackingAndCloseApp.invoke()
     }
 
     @JavascriptInterface

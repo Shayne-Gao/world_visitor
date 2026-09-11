@@ -35,7 +35,7 @@ button:active { transform: scale(0.92); }
 #trackingStatusPanel.compact { padding: 8px 10px; }
 #trackingStatusPanel.compact #trackingDebugLog { display: none; }
 #trackingStatusPanel.compact .tracking-toolbar { border-top: 0; padding-top: 0; margin-top: 0; }
-#trackingControlPanel .tracking-control-row { display: flex; align-items: center; justify-content: center; }
+#trackingControlPanel .tracking-control-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
 #trackingControlPanel .gps-status { display: none; }
 #trackingControlPanel .tracking-meta { display: none; }
 #trackingControlPanel .tracking-meta strong { color: #fff; font-weight: 600; }
@@ -49,6 +49,7 @@ button:active { transform: scale(0.92); }
 .tracking-action-btn { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 10px 22px; color: #fff; font-size: 14px; font-weight: 800; min-width: 132px; background: #16a34a; box-shadow: 0 6px 18px rgba(0,0,0,0.28); backdrop-filter: blur(10px); }
 .tracking-action-btn.stop { background: #dc2626; }
 .tracking-action-btn.pending { background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.78); }
+.tracking-action-btn.close-app { min-width: 76px; padding: 10px 14px; background: #7f1d1d; font-size: 13px; }
 #trackingDebugLog { width: 100%; max-height: 150px; overflow: auto; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(255,255,255,0.78); }
 #trackingDebugLog.hidden { display: none; }
 .tracking-debug-line { white-space: pre-wrap; line-height: 1.35; padding: 2px 0; }
@@ -205,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.105 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.106 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -238,6 +239,7 @@ button:active { transform: scale(0.92); }
         <div class="tracking-control-row">
             <div class="gps-status"><div id="mainGpsDot" class="gps-dot"></div> <span id="mainGpsText">自动记录中</span></div>
             <button id="trackingActionBtn" class="tracking-action-btn stop" type="button">停止记录</button>
+            <button id="trackingStopCloseBtn" class="tracking-action-btn close-app hidden" type="button">停并关</button>
         </div>
         <div class="tracking-meta">
             <span>状态：<strong id="trackingModeText">等待定位</strong></span>
@@ -245,10 +247,10 @@ button:active { transform: scale(0.92); }
             <span>累计轨迹段：<strong id="trackingSegmentCountText">0 段</strong></span>
         </div>
     </div>
-    <div id="trackingStatusPanel" class="btn-shadow">
+    <div id="trackingStatusPanel" class="btn-shadow compact">
         <div class="tracking-toolbar">
             <span id="trackingLogSummary" class="tracking-log-summary">记录中，最新 --，共 0 段</span>
-            <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">缩小</button>
+            <button id="trackingLogToggleBtn" class="tracking-log-toggle" type="button">展开</button>
         </div>
         <div id="trackingGuideRow" class="tracking-guide-row hidden">
             <span id="trackingGuideText">后台记录需要补充系统设置</span>
@@ -256,10 +258,10 @@ button:active { transform: scale(0.92); }
             <button id="openBatterySettingsBtn" class="tracking-guide-btn warning hidden" type="button">打开电池设置</button>
         </div>
         <div id="trackingSpeedRow" class="tracking-speed-row hidden">
-            <span>速度过滤：<strong id="trackingSpeedText">80 m/s</strong></span>
-            <button class="tracking-speed-btn" type="button" data-speed-mps="80">日常</button>
-            <button class="tracking-speed-btn" type="button" data-speed-mps="120">高铁</button>
-            <button class="tracking-speed-btn" type="button" data-speed-mps="250">飞机</button>
+            <span>速度过滤：<strong id="trackingSpeedText">288 km/h</strong></span>
+            <button class="tracking-speed-btn" type="button" data-speed-kmh="288">日常 288 km/h</button>
+            <button class="tracking-speed-btn" type="button" data-speed-kmh="432">高铁 432 km/h</button>
+            <button class="tracking-speed-btn" type="button" data-speed-kmh="900">飞机 900 km/h</button>
         </div>
         <div id="trackingDebugLog"></div>
     </div>
@@ -1096,7 +1098,7 @@ button:active { transform: scale(0.92); }
     const debugStartupMarks = { appStart: performance.now() };
     window.__fogLocalDebugLog = window.__fogLocalDebugLog || [];
     window.__fogTrackingDebugSeenKeys = window.__fogTrackingDebugSeenKeys || new Set();
-    window.__fogTrackingDebugCompact = window.__fogTrackingDebugCompact ?? false;
+    window.__fogTrackingDebugCompact = window.__fogTrackingDebugCompact ?? true;
     function shouldMirrorTrackingDebugEvent(event) {
         return [
             'web_native_status_refresh',
@@ -1127,7 +1129,6 @@ button:active { transform: scale(0.92); }
         if (window.__fogTrackingDebugSeenKeys.size > 400) {
             window.__fogTrackingDebugSeenKeys = new Set(Array.from(window.__fogTrackingDebugSeenKeys).slice(-240));
         }
-        container.classList.remove('hidden');
         const line = document.createElement('div');
         line.className = 'tracking-debug-line';
         const time = new Date(at).toLocaleTimeString('zh-CN', { hour12: false });
@@ -1933,7 +1934,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.105',
+            appVersion: 'v0.1.106',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

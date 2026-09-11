@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.webkit.GeolocationPermissions
@@ -225,6 +227,7 @@ class MainActivity : AppCompatActivity() {
                 this,
                 onStartTracking = { startNativeTrackingService() },
                 onStopTracking = { stopNativeTrackingService() },
+                onStopTrackingAndCloseApp = { stopNativeTrackingAndCloseApp() },
                 onPickExport = { launchExportPicker() },
                 onPickImportReplace = { launchImportPicker(false) },
                 onPickImportMerge = { launchImportPicker(true) }
@@ -386,6 +389,7 @@ class MainActivity : AppCompatActivity() {
                       const segmentText = document.getElementById('trackingSegmentCountText');
                       const trackingDock = document.getElementById('trackingBottomDock');
                       const trackingActionBtn = document.getElementById('trackingActionBtn');
+                      const trackingStopCloseBtn = document.getElementById('trackingStopCloseBtn');
                       const guideRow = document.getElementById('trackingGuideRow');
                       const guideText = document.getElementById('trackingGuideText');
                       const locationSettingsBtn = document.getElementById('openLocationSettingsBtn');
@@ -397,6 +401,7 @@ class MainActivity : AppCompatActivity() {
                       const missingBackgroundPermission = !!status.backgroundLocationRequired && !status.hasBackgroundLocationPermission;
                       const needsBatteryOptimizationGuide = !!status.batteryOptimizationCheckAvailable && !status.batteryOptimizationIgnored;
                       const maxSpeedMps = Number(status.maxSpeedMetersPerSecond || 80);
+                      const maxSpeedKmh = Math.round(maxSpeedMps * 3.6);
                       const hasFreshCurrentPoint = window.isFreshCurrentLocationTimestamp
                         ? window.isFreshCurrentLocationTimestamp(status.lastPointAt)
                         : false;
@@ -428,18 +433,24 @@ class MainActivity : AppCompatActivity() {
                         batterySettingsBtn?.classList.toggle('hidden', !needsBatteryOptimizationGuide);
                       }
                       if (speedRow) speedRow.classList.remove('hidden');
-                      if (speedText) speedText.textContent = Math.round(maxSpeedMps) + ' m/s';
-                      document.querySelectorAll('[data-speed-mps]').forEach((btn) => {
-                        const speed = Number(btn.dataset.speedMps || 0);
-                        btn.classList.toggle('active', Math.abs(speed - maxSpeedMps) < 0.5);
+                      if (speedText) speedText.textContent = maxSpeedKmh + ' km/h';
+                      document.querySelectorAll('[data-speed-kmh]').forEach((btn) => {
+                        const speedKmh = Number(btn.dataset.speedKmh || 0);
+                        btn.classList.toggle('active', Math.abs(speedKmh - maxSpeedKmh) < 2);
                       });
                       if (window.updateTrackingLogSummary) window.updateTrackingLogSummary(status);
+                      const recording = !!(status.isTracking || status.shouldTrack);
                       if (trackingActionBtn) {
-                        const recording = !!(status.isTracking || status.shouldTrack);
                         trackingActionBtn.textContent = recording ? '停止记录' : '开始记录';
                         trackingActionBtn.classList.toggle('stop', recording);
                         trackingActionBtn.classList.toggle('pending', false);
                         trackingActionBtn.disabled = false;
+                      }
+                      if (trackingStopCloseBtn) {
+                        trackingStopCloseBtn.classList.toggle('hidden', !recording);
+                        trackingStopCloseBtn.classList.toggle('pending', false);
+                        trackingStopCloseBtn.textContent = '停并关';
+                        trackingStopCloseBtn.disabled = false;
                       }
                       let markerUpdated = false;
                       if (hasFreshCurrentPoint && Number.isFinite(lastLat) && Number.isFinite(lastLng) && window.updateCurrentLocationMarker) {
@@ -483,6 +494,7 @@ class MainActivity : AppCompatActivity() {
                           backgroundLocationRequired: String(status.backgroundLocationRequired),
                           batteryOptimizationIgnored: String(status.batteryOptimizationIgnored),
                           maxSpeedMps: String(status.maxSpeedMetersPerSecond),
+                          maxSpeedKmh: String(maxSpeedKmh),
                           markerUpdated: String(markerUpdated),
                           draftPreviewPoints: String((status.draftPoints || []).length || 0),
                           nativeDebugCount: String((status.debugEvents || []).length || 0)
@@ -545,6 +557,27 @@ class MainActivity : AppCompatActivity() {
                     });
                   }
 
+                  const trackingStopCloseBtn = document.getElementById('trackingStopCloseBtn');
+                  if (trackingStopCloseBtn && !trackingStopCloseBtn.dataset.bound) {
+                    trackingStopCloseBtn.dataset.bound = '1';
+                    trackingStopCloseBtn.addEventListener('click', () => {
+                      try {
+                        trackingStopCloseBtn.disabled = true;
+                        trackingStopCloseBtn.classList.add('pending');
+                        trackingStopCloseBtn.textContent = '关闭中...';
+                        AndroidBridge.stopBackgroundTrackingAndCloseApp();
+                        if (window.reportDebugEvent) {
+                          window.reportDebugEvent('web_tracking_stop_close_clicked', {});
+                        }
+                      } catch (err) {
+                        console.warn('Failed to stop tracking and close app', err);
+                        trackingStopCloseBtn.disabled = false;
+                        trackingStopCloseBtn.classList.remove('pending');
+                        trackingStopCloseBtn.textContent = '停并关';
+                      }
+                    });
+                  }
+
                   const locationSettingsBtn = document.getElementById('openLocationSettingsBtn');
                   if (locationSettingsBtn && !locationSettingsBtn.dataset.bound) {
                     locationSettingsBtn.dataset.bound = '1';
@@ -571,14 +604,18 @@ class MainActivity : AppCompatActivity() {
                     });
                   }
 
-                  document.querySelectorAll('[data-speed-mps]').forEach((btn) => {
+                  document.querySelectorAll('[data-speed-kmh]').forEach((btn) => {
                     if (btn.dataset.bound) return;
                     btn.dataset.bound = '1';
                     btn.addEventListener('click', () => {
                       try {
-                        const speed = Number(btn.dataset.speedMps || 80);
-                        AndroidBridge.setMaxTrackingSpeedMetersPerSecond(speed);
-                        if (window.reportDebugEvent) window.reportDebugEvent('web_speed_threshold_clicked', { speedMps: String(speed) });
+                        const speedKmh = Number(btn.dataset.speedKmh || 288);
+                        const speedMps = speedKmh / 3.6;
+                        AndroidBridge.setMaxTrackingSpeedMetersPerSecond(speedMps);
+                        if (window.reportDebugEvent) window.reportDebugEvent('web_speed_threshold_clicked', {
+                          speedKmh: String(speedKmh),
+                          speedMps: String(speedMps)
+                        });
                         setTimeout(refreshNativeTrackingStatus, 150);
                       } catch (err) {
                         console.warn('Failed to update speed threshold', err);
@@ -746,6 +783,14 @@ class MainActivity : AppCompatActivity() {
             action = TrackingForegroundService.ACTION_STOP
         }
         startService(intent)
+    }
+
+    private fun stopNativeTrackingAndCloseApp() {
+        reportDebugEvent("native_stop_tracking_and_close_app_called", emptyMap())
+        stopNativeTrackingService()
+        Handler(Looper.getMainLooper()).postDelayed({
+            finishAndRemoveTask()
+        }, 500L)
     }
 
     private fun launchImportPicker(merge: Boolean) {
