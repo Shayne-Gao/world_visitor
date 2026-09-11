@@ -206,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.107 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.108 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1505,7 +1505,6 @@ button:active { transform: scale(0.92); }
         }
     }
 
-    const fogCanvasRenderer = L.canvas({ padding: 0.5 });
     const fogDisplayGeometryCache = {
         fog: { source: null, tolerance: null, geometry: null },
         explored: { source: null, tolerance: null, geometry: null },
@@ -1542,6 +1541,126 @@ button:active { transform: scale(0.92); }
         return displayGeometry;
     }
 
+    const FogCanvasLayer = L.Layer.extend({
+        initialize: function(geometry, options) {
+            L.setOptions(this, options);
+            this._geometry = geometry || null;
+        },
+        onAdd: function(layerMap) {
+            this._map = layerMap;
+            this._canvas = L.DomUtil.create('canvas', 'leaflet-fog-canvas-layer');
+            this._canvas.style.position = 'absolute';
+            this._canvas.style.pointerEvents = 'none';
+            this._canvas.style.zIndex = this.options.zIndex || 450;
+            layerMap.getPanes().overlayPane.appendChild(this._canvas);
+            layerMap.on('moveend zoomend resize', this._reset, this);
+            this._reset();
+        },
+        onRemove: function(layerMap) {
+            layerMap.off('moveend zoomend resize', this._reset, this);
+            if (this._canvas) L.DomUtil.remove(this._canvas);
+            this._canvas = null;
+            this._map = null;
+        },
+        _reset: function() {
+            if (!this._map || !this._canvas) return;
+            const size = this._map.getSize();
+            const padX = Math.round(size.x * 0.5);
+            const padY = Math.round(size.y * 0.5);
+            const drawSize = L.point(size.x + padX * 2, size.y + padY * 2);
+            const topLeft = this._map.containerPointToLayerPoint([-padX, -padY]);
+            const ratio = Math.min(window.devicePixelRatio || 1, 2);
+            L.DomUtil.setPosition(this._canvas, topLeft);
+            this._canvas.width = Math.max(1, Math.round(drawSize.x * ratio));
+            this._canvas.height = Math.max(1, Math.round(drawSize.y * ratio));
+            this._canvas.style.width = `${drawSize.x}px`;
+            this._canvas.style.height = `${drawSize.y}px`;
+            const ctx = this._canvas.getContext('2d');
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            ctx.clearRect(0, 0, drawSize.x, drawSize.y);
+            this._draw(ctx, drawSize, topLeft);
+        },
+        _draw: function(ctx, size, topLeft) {
+            const mode = this.options.mode || 'fogMask';
+            if (mode === 'fogMask') {
+                ctx.fillStyle = this.options.fillStyle || 'rgba(0,0,0,0.65)';
+                ctx.fillRect(0, 0, size.x, size.y);
+                if (this._geometry) {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.fillStyle = '#000';
+                    this._drawGeometry(ctx, this._geometry, topLeft, true);
+                    ctx.restore();
+                }
+                return;
+            }
+            if (!this._geometry) return;
+            ctx.save();
+            ctx.fillStyle = this.options.fillStyle || 'rgba(40,167,69,0.55)';
+            ctx.strokeStyle = this.options.strokeStyle || 'rgba(40,167,69,0.65)';
+            ctx.lineWidth = this.options.lineWidth || 0;
+            if (this.options.fill !== false) this._drawGeometry(ctx, this._geometry, topLeft, true);
+            if (this.options.stroke) this._drawGeometry(ctx, this._geometry, topLeft, false);
+            ctx.restore();
+        },
+        _drawGeometry: function(ctx, geojson, topLeft, fill) {
+            if (!geojson) return;
+            const type = geojson.type;
+            if (type === 'Feature') return this._drawGeometry(ctx, geojson.geometry, topLeft, fill);
+            if (type === 'FeatureCollection') {
+                (geojson.features || []).forEach(feature => this._drawGeometry(ctx, feature, topLeft, fill));
+                return;
+            }
+            if (type === 'GeometryCollection') {
+                (geojson.geometries || []).forEach(geometry => this._drawGeometry(ctx, geometry, topLeft, fill));
+                return;
+            }
+            if (type === 'Polygon') return this._drawPolygon(ctx, geojson.coordinates || [], topLeft, fill);
+            if (type === 'MultiPolygon') {
+                (geojson.coordinates || []).forEach(polygon => this._drawPolygon(ctx, polygon, topLeft, fill));
+            }
+        },
+        _drawPolygon: function(ctx, rings, topLeft, fill) {
+            if (!rings || !rings.length) return;
+            ctx.beginPath();
+            rings.forEach(ring => {
+                (ring || []).forEach((coord, index) => {
+                    const point = this._map.latLngToLayerPoint([coord[1], coord[0]]).subtract(topLeft);
+                    if (index === 0) ctx.moveTo(point.x, point.y);
+                    else ctx.lineTo(point.x, point.y);
+                });
+                ctx.closePath();
+            });
+            if (fill) {
+                try { ctx.fill('evenodd'); }
+                catch (err) { ctx.fill(); }
+            } else {
+                ctx.stroke();
+            }
+        }
+    });
+
+    function createFogMaskLayer(exploredGeometry, zoom) {
+        return new FogCanvasLayer(getDisplayGeometry('explored', exploredGeometry, zoom), {
+            mode: 'fogMask',
+            fillStyle: 'rgba(0,0,0,0.65)',
+            zIndex: 450
+        });
+    }
+
+    function createExploredCanvasLayer(geometry, zoom, options) {
+        const cacheKey = options.cacheKey || 'explored';
+        return new FogCanvasLayer(getDisplayGeometry(cacheKey, geometry, zoom), {
+            mode: 'explored',
+            fill: options.fill,
+            stroke: options.stroke,
+            fillStyle: options.fillStyle,
+            strokeStyle: options.strokeStyle,
+            lineWidth: options.lineWidth,
+            zIndex: options.zIndex || 451
+        });
+    }
+
     function renderLayers() {
         const renderStartedAt = performance.now();
         if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer); if(savedTrackDebugLayer) map.removeLayer(savedTrackDebugLayer);
@@ -1560,11 +1679,11 @@ button:active { transform: scale(0.92); }
         let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
         if(isEditMode) { 
             if(viewTodayOnly) { let todayPrefix = getTodayPrefix(), todayPoly = null; for(let k in appData.renderCache.dailyExplored) { if(k.startsWith(todayPrefix)) todayPoly = todayPoly ? turf.union(todayPoly, appData.renderCache.dailyExplored[k]) : appData.renderCache.dailyExplored[k]; }
-                if(todayPoly) exploredLayer = L.geoJSON(getDisplayGeometry('today', todayPoly, z), {renderer:fogCanvasRenderer, style:{fillColor:'#007bff',fillOpacity:0.65,color:'#007bff',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map);
-            } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(getDisplayGeometry('explored', appData.renderCache.globalExplored, z), {renderer:fogCanvasRenderer, style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
+                if(todayPoly) exploredLayer = createExploredCanvasLayer(todayPoly, z, {cacheKey:'today', fill:true, stroke:true, fillStyle:'rgba(0,123,255,0.65)', strokeStyle:'rgba(0,123,255,0.65)', lineWidth:compWeight}).addTo(map);
+            } else { if(appData.renderCache.globalExplored) exploredLayer = createExploredCanvasLayer(appData.renderCache.globalExplored, z, {cacheKey:'explored', fill:true, stroke:true, fillStyle:'rgba(40,167,69,0.55)', strokeStyle:'rgba(40,167,69,0.65)', lineWidth:compWeight}).addTo(map); }
         } else { 
-            if(appData.renderCache.globalFog) fogLayer = L.geoJSON(getDisplayGeometry('fog', appData.renderCache.globalFog, z), {renderer:fogCanvasRenderer, style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
-            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(getDisplayGeometry('explored', appData.renderCache.globalExplored, z), {renderer:fogCanvasRenderer, style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
+            fogLayer = createFogMaskLayer(appData.renderCache.globalExplored, z).addTo(map); 
+            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = createExploredCanvasLayer(appData.renderCache.globalExplored, z, {cacheKey:'explored', fill:false, stroke:true, strokeStyle:'rgba(255,255,255,0.35)', lineWidth:compWeight, zIndex:451}).addTo(map);
         }
         if (!window.__fogTrackingDebugCompact && Array.isArray(appData?.sourceOfTruth?.tracks) && appData.sourceOfTruth.tracks.length > 0 && appData.sourceOfTruth.tracks.length <= 80) {
             const trackLines = appData.sourceOfTruth.tracks
@@ -1587,7 +1706,7 @@ button:active { transform: scale(0.92); }
             isEditMode: String(isEditMode),
             isAutoRecording: String(isAutoRecording),
             shortCircuit: 'false',
-            renderer: 'canvas',
+            renderer: 'custom-canvas-mask',
             simplifyTolerance: String(getRenderSimplifyTolerance(z)),
             debugTrackLayer: String(!!savedTrackDebugLayer)
         });
@@ -1625,7 +1744,7 @@ button:active { transform: scale(0.92); }
         }
         return fogCache[idx] || currentFog;
     }
-    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = getTimelineFogAtIndex(idx); fogLayer = L.geoJSON(getDisplayGeometry('fog', fogToRender, map.getZoom()), {renderer:fogCanvasRenderer, style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
+    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = getTimelineFogAtIndex(idx); fogLayer = createExploredCanvasLayer(fogToRender, map.getZoom(), {cacheKey:'fog', fill:true, stroke:false, fillStyle:'rgba(0,0,0,0.65)', zIndex:450}).addTo(map); });
     function refreshTimelineButtonVisibility() {
         const btn = document.getElementById('toggleTimelineBtn');
         const container = document.getElementById('timelineContainer');
@@ -1973,7 +2092,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.107',
+            appVersion: 'v0.1.108',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
