@@ -206,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.106 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.107 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1505,6 +1505,43 @@ button:active { transform: scale(0.92); }
         }
     }
 
+    const fogCanvasRenderer = L.canvas({ padding: 0.5 });
+    const fogDisplayGeometryCache = {
+        fog: { source: null, tolerance: null, geometry: null },
+        explored: { source: null, tolerance: null, geometry: null },
+        today: { source: null, tolerance: null, geometry: null }
+    };
+
+    function getRenderSimplifyTolerance(zoom) {
+        if (zoom < 8) return 0.004;
+        if (zoom < 11) return 0.0015;
+        if (zoom < 13) return 0.0005;
+        return 0;
+    }
+
+    function getDisplayGeometry(cacheKey, geometry, zoom) {
+        if (!geometry) return geometry;
+        const tolerance = getRenderSimplifyTolerance(zoom);
+        if (tolerance <= 0) return geometry;
+        const cache = fogDisplayGeometryCache[cacheKey];
+        if (cache && cache.source === geometry && cache.tolerance === tolerance && cache.geometry) return cache.geometry;
+        let displayGeometry = geometry;
+        try {
+            displayGeometry = turf.truncate(
+                turf.simplify(geometry, { tolerance, highQuality: false }),
+                { precision: 5 }
+            );
+        } catch (err) {
+            displayGeometry = geometry;
+        }
+        if (cache) {
+            cache.source = geometry;
+            cache.tolerance = tolerance;
+            cache.geometry = displayGeometry;
+        }
+        return displayGeometry;
+    }
+
     function renderLayers() {
         const renderStartedAt = performance.now();
         if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer); if(savedTrackDebugLayer) map.removeLayer(savedTrackDebugLayer);
@@ -1523,11 +1560,11 @@ button:active { transform: scale(0.92); }
         let z = map.getZoom(), compWeight = z < 13 ? Math.min(6, 13 - z) : 0; 
         if(isEditMode) { 
             if(viewTodayOnly) { let todayPrefix = getTodayPrefix(), todayPoly = null; for(let k in appData.renderCache.dailyExplored) { if(k.startsWith(todayPrefix)) todayPoly = todayPoly ? turf.union(todayPoly, appData.renderCache.dailyExplored[k]) : appData.renderCache.dailyExplored[k]; }
-                if(todayPoly) exploredLayer = L.geoJSON(todayPoly, {style:{fillColor:'#007bff',fillOpacity:0.65,color:'#007bff',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map);
-            } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
+                if(todayPoly) exploredLayer = L.geoJSON(getDisplayGeometry('today', todayPoly, z), {renderer:fogCanvasRenderer, style:{fillColor:'#007bff',fillOpacity:0.65,color:'#007bff',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map);
+            } else { if(appData.renderCache.globalExplored) exploredLayer = L.geoJSON(getDisplayGeometry('explored', appData.renderCache.globalExplored, z), {renderer:fogCanvasRenderer, style:{fillColor:'#28a745',fillOpacity:0.55,color:'#28a745',weight:compWeight,opacity:0.65}, interactive:false}).addTo(map); }
         } else { 
-            if(appData.renderCache.globalFog) fogLayer = L.geoJSON(appData.renderCache.globalFog, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
-            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(appData.renderCache.globalExplored, {style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
+            if(appData.renderCache.globalFog) fogLayer = L.geoJSON(getDisplayGeometry('fog', appData.renderCache.globalFog, z), {renderer:fogCanvasRenderer, style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); 
+            if(z < 11 && appData.renderCache.globalExplored) exploredLayer = L.geoJSON(getDisplayGeometry('explored', appData.renderCache.globalExplored, z), {renderer:fogCanvasRenderer, style:{fillColor:'transparent',fillOpacity:0,color:'#ffffff',weight:compWeight,opacity:0.35}, interactive:false}).addTo(map);
         }
         if (!window.__fogTrackingDebugCompact && Array.isArray(appData?.sourceOfTruth?.tracks) && appData.sourceOfTruth.tracks.length > 0 && appData.sourceOfTruth.tracks.length <= 80) {
             const trackLines = appData.sourceOfTruth.tracks
@@ -1550,6 +1587,8 @@ button:active { transform: scale(0.92); }
             isEditMode: String(isEditMode),
             isAutoRecording: String(isAutoRecording),
             shortCircuit: 'false',
+            renderer: 'canvas',
+            simplifyTolerance: String(getRenderSimplifyTolerance(z)),
             debugTrackLayer: String(!!savedTrackDebugLayer)
         });
     }
@@ -1586,7 +1625,7 @@ button:active { transform: scale(0.92); }
         }
         return fogCache[idx] || currentFog;
     }
-    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = getTimelineFogAtIndex(idx); fogLayer = L.geoJSON(fogToRender, {style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
+    document.getElementById('timelineSlider').addEventListener('input', (e) => { const idx = parseInt(e.target.value); updateTimelineLabel(); if(fogLayer) map.removeLayer(fogLayer); let fogToRender = getTimelineFogAtIndex(idx); fogLayer = L.geoJSON(getDisplayGeometry('fog', fogToRender, map.getZoom()), {renderer:fogCanvasRenderer, style:{fillColor:'#000',fillOpacity:0.65,color:'transparent',weight:0}, interactive:false}).addTo(map); });
     function refreshTimelineButtonVisibility() {
         const btn = document.getElementById('toggleTimelineBtn');
         const container = document.getElementById('timelineContainer');
@@ -1934,7 +1973,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.106',
+            appVersion: 'v0.1.107',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
