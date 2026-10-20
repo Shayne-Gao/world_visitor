@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        nativeTrackStore = NativeTrackStore(this)
+        nativeTrackStore = NativeTrackStore.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.statusBanner.visibility = View.GONE
@@ -103,6 +103,12 @@ class MainActivity : AppCompatActivity() {
             mapOf("hasFine" to hasForegroundLocationPermission().toString())
         )
         ensureAutoTrackingStarted()
+    }
+
+    override fun onDestroy() {
+        binding.webView.stopLoading()
+        binding.webView.destroy()
+        super.onDestroy()
     }
 
     private fun requestRuntimePermissions() {
@@ -264,8 +270,8 @@ class MainActivity : AppCompatActivity() {
 
                 const shouldReplaceLocal =
                   !current ||
-                  nativeSummary.trackCount > currentTrackCount ||
-                  nativeSummary.latestTimestamp > currentLatestTimestamp;
+                  nativeSummary.epoch !== current?.metadata?.nativeEpoch ||
+                  nativeSummary.revision !== current?.metadata?.nativeRevision;
 
                 if (currentHasRenderableCache && shouldReplaceLocal) {
                   window.__fogPendingNativeHydration = true;
@@ -330,6 +336,12 @@ class MainActivity : AppCompatActivity() {
                   };
 
                   const syncNativeArchiveIfAdvanced = async () => {
+                    if (document.hidden || window.__fogMapInteracting || window.__fogIncrementalInFlight ||
+                        window.__fogHydrationInFlight || window.__fogEditModeActive) return;
+                    if (window.__fogPendingNativeHydration) {
+                      window.hydrateNativeRenderCacheAfterBoot?.();
+                      return;
+                    }
                     try {
                       const summary = JSON.parse(AndroidBridge.getNativeArchiveSummary());
                       const currentTrackCount = Array.isArray(window.appData?.sourceOfTruth?.tracks)
@@ -339,20 +351,14 @@ class MainActivity : AppCompatActivity() {
                         0,
                         ...(window.appData?.sourceOfTruth?.tracks || []).map(track => track?.timestamp || 0)
                       );
-                      const previous = window.__fogLastNativeArchiveSummary || { trackCount: 0, latestTimestamp: 0 };
-                      const advanced =
-                        summary.trackCount > previous.trackCount ||
-                        summary.latestTimestamp > previous.latestTimestamp;
-                      window.__fogLastNativeArchiveSummary = summary;
                       if ((window.__fogSkipNativeSyncUntil || 0) > Date.now()) return;
                       const newerThanPage =
-                        summary.trackCount > currentTrackCount ||
-                        summary.latestTimestamp > currentLatestTimestamp;
-                      if (!advanced || !newerThanPage || window.__fogEditModeActive) return;
+                        summary.epoch !== window.appData?.metadata?.nativeEpoch ||
+                        summary.revision !== window.appData?.metadata?.nativeRevision;
+                      if (!newerThanPage) return;
                       const canApplyIncrementally =
-                        currentTrackCount > 0 &&
-                        summary.trackCount >= currentTrackCount &&
-                        (summary.trackCount - currentTrackCount) <= (window.__fogMaxNativeIncrementalTracks || 50) &&
+                        summary.epoch === window.appData?.metadata?.nativeEpoch &&
+                        window.appData?.metadata?.nativeRevision >= summary.resetRevision &&
                         typeof window.syncNativeArchiveIncrementally === 'function';
                       if (window.reportDebugEvent) {
                         window.reportDebugEvent('web_native_archive_incremental_sync_scheduled', {
@@ -674,9 +680,10 @@ class MainActivity : AppCompatActivity() {
                   } catch (e) {}
                   if (!window.__fogNativeTrackingStatusTimer) {
                     window.__fogNativeTrackingStatusTimer = setInterval(() => {
+                      if (document.hidden || window.__fogMapInteracting) return;
                       refreshNativeTrackingStatus();
                       syncNativeArchiveIfAdvanced();
-                    }, 1500);
+                    }, 3000);
                   }
 
                   window.__fogNativeTrackingUiBound = true;

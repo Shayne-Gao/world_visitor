@@ -12,6 +12,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
+import android.os.PowerManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
@@ -24,7 +27,9 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import org.json.JSONObject
+import java.util.concurrent.Executor
 
 class TrackingForegroundService : Service() {
 
@@ -32,20 +37,31 @@ class TrackingForegroundService : Service() {
     private lateinit var trackStore: NativeTrackStore
     private val trackingConfigPrefs by lazy { getSharedPreferences(TrackingConfig.PREFS_NAME, Context.MODE_PRIVATE) }
     private var locationCallback: LocationCallback? = null
-    private var isExplicitStop = false
+    @Volatile private var isExplicitStop = false
+    private val locationStateLock = Any()
     private var lastAcceptedLocation: Location? = null
     private var lastAcceptedAt: Long = 0L
     private val watchdogHandler = Handler(Looper.getMainLooper())
     private var locationWatchdog: Runnable? = null
-    private var lastLocationCallbackAt: Long = 0L
+    @Volatile private var lastLocationCallbackAt: Long = 0L
+    private val locationThread = HandlerThread("fog-location-writer")
+    private lateinit var locationHandler: Handler
+    private lateinit var locationExecutor: Executor
+    @Volatile private var session = 0
+    @Volatile private var acceptingLocations = false
+    private var probeCancellation: CancellationTokenSource? = null
+    private var lastSubscriptionAttemptAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        trackStore = NativeTrackStore(this)
-        restoreLastAcceptedLocation()
+        trackStore = NativeTrackStore.getInstance(this)
+        locationThread.start()
+        locationHandler = Handler(locationThread.looper)
+        locationExecutor = Executor { locationHandler.post(it) }
+        locationHandler.post { restoreLastAcceptedLocation() }
         //#region debug-point apk-ui-storage-regression-service-create
         reportDebugEvent("service_on_create", emptyMap())
         //#endregion
@@ -60,18 +76,22 @@ class TrackingForegroundService : Service() {
         //#endregion
         when (intent?.action) {
             ACTION_START -> startInForeground()
+            ACTION_RESTART -> if (trackStore.shouldTrack()) startInForeground() else stopSelf()
             ACTION_STOP -> stopSelfSafely()
-            null -> if (trackStore.shouldTrack()) startInForeground()
+            null -> if (trackStore.shouldTrack()) startInForeground() else stopSelf()
         }
-        return START_STICKY
+        return if (isExplicitStop || !trackStore.shouldTrack()) START_NOT_STICKY else START_STICKY
     }
 
     private fun startInForeground() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-        isExplicitStop = false
-        trackStore.markTrackingRequested(true)
-        trackStore.markTrackingRunning(true, shouldTrack = true)
+        synchronized(locationStateLock) {
+            isExplicitStop = false
+            acceptingLocations = true
+            trackStore.markTrackingRequested(true)
+        }
+        cancelSelfRestart()
         //#region debug-point apk-ui-storage-regression-service-foreground
         reportDebugEvent("service_start_in_foreground", emptyMap())
         //#endregion
@@ -79,24 +99,50 @@ class TrackingForegroundService : Service() {
     }
 
     private fun stopSelfSafely() {
-        isExplicitStop = true
+        val stoppedSession = synchronized(locationStateLock) {
+            isExplicitStop = true
+            acceptingLocations = false
+            trackStore.markTrackingRequested(false)
+            ++session
+        }
+        reportDebugEvent("service_explicit_stop", emptyMap())
+        cancelSelfRestart()
         stopLocationUpdates {
-            trackStore.finalizeDraftToTrack()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            locationHandler.post {
+                synchronized(locationStateLock) {
+                  if (session == stoppedSession && isExplicitStop) {
+                    trackStore.finalizeDraftToTrack()
+                    watchdogHandler.post {
+                        if (session == stoppedSession && isExplicitStop) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        } else if (acceptingLocations) {
+                            // A new START can arrive while the old draft is being finalized.
+                            trackStore.markTrackingRequested(true)
+                        }
+                    }
+                  }
+                }
+            }
         }
     }
 
     override fun onDestroy() {
+        synchronized(locationStateLock) {
+            acceptingLocations = false
+            session++
+        }
+        reportDebugEvent("service_on_destroy", mapOf("explicit" to isExplicitStop.toString()))
         stopLocationUpdates()
-        if (!isExplicitStop && trackStore.shouldTrack()) {
+        if (!isExplicitStop && trackStore.shouldTrack() && hasLocationPermission()) {
             scheduleSelfRestart()
         }
+        locationThread.quitSafely()
         super.onDestroy()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (trackStore.shouldTrack()) {
+        if (!isExplicitStop && trackStore.shouldTrack()) {
             scheduleSelfRestart()
         }
         super.onTaskRemoved(rootIntent)
@@ -108,6 +154,7 @@ class TrackingForegroundService : Service() {
             .setContentText(getString(R.string.tracking_notification_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
@@ -122,7 +169,8 @@ class TrackingForegroundService : Service() {
         )
         //#endregion
         if (!hasLocationPermission()) {
-            trackStore.markTrackingRunning(false, shouldTrack = false)
+            acceptingLocations = false
+            trackStore.markTrackingRunning(false)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
@@ -134,9 +182,10 @@ class TrackingForegroundService : Service() {
             )
         }
         if (locationCallback != null) {
-            requestCurrentLocationProbe("existing_callback")
             return
         }
+        val subscriptionSession = ++session
+        lastSubscriptionAttemptAt = SystemClock.elapsedRealtime()
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
             .setMinUpdateDistanceMeters(0f)
@@ -146,25 +195,40 @@ class TrackingForegroundService : Service() {
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                lastLocationCallbackAt = System.currentTimeMillis()
-                result.lastLocation?.let { location ->
-                    persistLocation(location)
+                if (!acceptingLocations || subscriptionSession != session) return
+                lastLocationCallbackAt = SystemClock.elapsedRealtime()
+                reportDebugEvent("service_location_batch", mapOf("count" to result.locations.size.toString()))
+                result.locations.sortedBy { it.elapsedRealtimeNanos }.forEach { location ->
+                    if (acceptingLocations && subscriptionSession == session) persistLocation(location, subscriptionSession)
                 }
             }
         }
 
-        fusedLocationClient.requestLocationUpdates(
+        try { fusedLocationClient.requestLocationUpdates(
             request,
             locationCallback as LocationCallback,
-            Looper.getMainLooper()
-        )
+            locationThread.looper
+        ).addOnSuccessListener {
+            if (acceptingLocations && session == subscriptionSession) trackStore.markTrackingRunning(true)
+        }.addOnFailureListener { error ->
+            if (session == subscriptionSession) {
+                locationCallback = null
+                trackStore.markTrackingRunning(false)
+                reportDebugEvent("service_subscription_failed", mapOf("error" to error.toString()))
+            }
+        } } catch (error: SecurityException) {
+            locationCallback = null
+            trackStore.markTrackingRunning(false)
+            reportDebugEvent("service_subscription_failed", mapOf("error" to error.toString()))
+        }
         startLocationWatchdog()
         requestCurrentLocationProbe("start_location_updates")
 
-        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        try { fusedLocationClient.lastLocation.addOnSuccessListener(locationExecutor) { location ->
             val maxAgeMs = 2 * 60 * 1000L
-            if (location != null && System.currentTimeMillis() - location.time <= maxAgeMs) {
-                persistLocation(location)
+            if (acceptingLocations && session == subscriptionSession && location != null &&
+                System.currentTimeMillis() - location.time in 0..maxAgeMs) {
+                persistLocation(location, subscriptionSession)
             } else {
                 reportDebugEvent(
                     "service_last_location_ignored",
@@ -174,14 +238,21 @@ class TrackingForegroundService : Service() {
                     )
                 )
             }
+        } } catch (error: SecurityException) {
+            reportDebugEvent("service_last_location_permission_revoked", mapOf("error" to error.toString()))
         }
     }
 
     private fun requestCurrentLocationProbe(reason: String) {
-        if (!hasLocationPermission()) return
+        if (!hasLocationPermission() || !acceptingLocations || probeCancellation != null) return
+        val probeSession = session
+        val cancellation = CancellationTokenSource()
+        probeCancellation = cancellation
+        watchdogHandler.postDelayed({ cancellation.cancel() }, 15_000L)
         reportDebugEvent("service_current_location_probe_start", mapOf("reason" to reason))
-        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            .addOnSuccessListener { location ->
+        try { fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token)
+            .addOnSuccessListener(locationExecutor) { location ->
+                if (!acceptingLocations || probeSession != session) return@addOnSuccessListener
                 if (location == null) {
                     reportDebugEvent(
                         "service_current_location_probe_empty",
@@ -198,7 +269,7 @@ class TrackingForegroundService : Service() {
                         "acc" to location.accuracy.toString()
                     )
                 )
-                persistLocation(location)
+                persistLocation(location, probeSession)
             }
             .addOnFailureListener { error ->
                 reportDebugEvent(
@@ -209,19 +280,33 @@ class TrackingForegroundService : Service() {
                     )
                 )
             }
+            .addOnCompleteListener {
+                if (probeCancellation === cancellation) probeCancellation = null
+            }
+        } catch (error: SecurityException) {
+            cancellation.cancel()
+            probeCancellation = null
+            trackStore.markTrackingRunning(false)
+            reportDebugEvent("service_probe_permission_revoked", mapOf("error" to error.toString()))
+        }
     }
 
     private fun stopLocationUpdates(onStopped: (() -> Unit)? = null) {
         stopLocationWatchdog()
+        probeCancellation?.cancel()
+        probeCancellation = null
         val callback = locationCallback
+        locationCallback = null
+        val stoppingSession = session
         if (callback == null) {
             trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
             onStopped?.invoke()
             return
         }
         fusedLocationClient.removeLocationUpdates(callback).addOnCompleteListener {
-            locationCallback = null
-            trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
+            if (session == stoppingSession) {
+                trackStore.markTrackingRunning(false, shouldTrack = !isExplicitStop && trackStore.shouldTrack())
+            }
             onStopped?.invoke()
         }
     }
@@ -263,9 +348,9 @@ class TrackingForegroundService : Service() {
     private fun scheduleSelfRestart() {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val restartIntent = Intent(this, TrackingForegroundService::class.java).apply {
-            action = ACTION_START
+            action = ACTION_RESTART
         }
-        val pendingIntent = PendingIntent.getService(
+        val pendingIntent = PendingIntent.getForegroundService(
             this,
             2001,
             restartIntent,
@@ -283,7 +368,33 @@ class TrackingForegroundService : Service() {
         }
     }
 
-    private fun persistLocation(location: Location) {
+    private fun cancelSelfRestart() {
+        val manager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val flags = PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        // Also remove alarms created by older APKs that used ACTION_START/getService.
+        val oldIntent = Intent(this, TrackingForegroundService::class.java).apply { action = ACTION_START }
+        val newIntent = Intent(this, TrackingForegroundService::class.java).apply { action = ACTION_RESTART }
+        listOf(
+            PendingIntent.getService(this, 2001, oldIntent, flags),
+            PendingIntent.getForegroundService(this, 2001, newIntent, flags)
+        ).filterNotNull().forEach { pending ->
+            manager.cancel(pending)
+            pending.cancel()
+        }
+    }
+
+    private fun persistLocation(location: Location, expectedSession: Int) {
+        synchronized(locationStateLock) {
+            if (!acceptingLocations || expectedSession != session) return
+            try {
+                persistAcceptedLocation(location)
+            } catch (error: Exception) {
+                reportDebugEvent("service_location_write_failed", mapOf("error" to error.toString()))
+            }
+        }
+    }
+
+    private fun persistAcceptedLocation(location: Location) {
         reportDebugEvent(
             "service_location_received",
             mapOf(
@@ -312,24 +423,26 @@ class TrackingForegroundService : Service() {
         trackStore.appendDraftPoint(
             lng = location.longitude,
             lat = location.latitude,
-            accuracy = location.accuracy.toDouble()
+            accuracy = location.accuracy.toDouble(),
+            sampledAt = location.time
         )
         val track = trackStore.checkpointDraftToTrackIfNeeded(minPointCount = 2)
         lastAcceptedLocation = location
-        lastAcceptedAt = System.currentTimeMillis()
+        lastAcceptedAt = location.time
         //#region debug-point auto-tracking-broken-service-point-persisted
         reportDebugEvent(
             "service_location_persisted",
             mapOf(
                 "draftPointCount" to trackStore.readDraftPoints().size.toString(),
                 "trackCheckpointed" to (track != null).toString(),
-                "trackCount" to trackStore.readArchiveTracks().size.toString()
+                "trackCount" to trackStore.trackCount().toString()
             )
         )
         //#endregion
     }
 
     private fun shouldPersistLocation(location: Location): Boolean {
+        if (!location.hasAccuracy() || !LocationSamplePolicy.isNewSample(location.time, lastAcceptedAt)) return false
         if (location.accuracy > MAX_ACCEPTED_ACCURACY_METERS) {
             reportDebugEvent(
                 "service_location_skipped_accuracy",
@@ -347,7 +460,7 @@ class TrackingForegroundService : Service() {
         }
         val distance = location.distanceTo(previous)
         val elapsedMs = if (lastAcceptedAt > 0L) {
-            System.currentTimeMillis() - lastAcceptedAt
+            location.time - lastAcceptedAt
         } else {
             Long.MAX_VALUE
         }
@@ -384,7 +497,7 @@ class TrackingForegroundService : Service() {
         }
         val speedMetersPerSecond = distance / maxOf(1f, elapsedMs.toFloat() / 1000f)
         val maxAcceptedSpeed = getMaxAcceptedSpeedMetersPerSecond()
-        if (elapsedMs >= MIN_SPEED_FILTER_ELAPSED_MS && speedMetersPerSecond > maxAcceptedSpeed) {
+        if (LocationSamplePolicy.isTooFast(distance, elapsedMs, maxAcceptedSpeed)) {
             reportDebugEvent(
                 "service_location_skipped_speed",
                 mapOf(
@@ -413,9 +526,9 @@ class TrackingForegroundService : Service() {
     private fun maybeCheckpointDraftBeforeSegmentBreak(location: Location) {
         val previous = lastAcceptedLocation ?: return
         if (lastAcceptedAt <= 0L) return
-        val elapsedMs = System.currentTimeMillis() - lastAcceptedAt
+        val elapsedMs = location.time - lastAcceptedAt
         val distanceMeters = location.distanceTo(previous)
-        if (elapsedMs <= MAX_TRACK_GAP_MS && distanceMeters <= MAX_TRACK_GAP_DISTANCE_METERS) return
+        if (!LocationSamplePolicy.breaksSegment(distanceMeters, elapsedMs)) return
         val existingDraftCount = trackStore.readDraftPoints().size
         if (existingDraftCount <= 0) return
         val checkpointed = trackStore.checkpointDraftForSegmentBreak(minPointCount = 2)
@@ -434,38 +547,35 @@ class TrackingForegroundService : Service() {
         stopLocationWatchdog()
         locationWatchdog = object : Runnable {
             override fun run() {
-                if (locationCallback == null) return
-                val now = System.currentTimeMillis()
+                if (!acceptingLocations) return
+                val now = SystemClock.elapsedRealtime()
                 if (now - lastLocationCallbackAt >= LOCATION_CALLBACK_STALL_MS) {
+                    val power = getSystemService(PowerManager::class.java)
                     reportDebugEvent(
                         "service_location_watchdog_triggered",
-                        mapOf("idleMs" to (now - lastLocationCallbackAt).toString())
+                        mapOf(
+                            "idleMs" to (now - lastLocationCallbackAt).toString(),
+                            "interactive" to power.isInteractive.toString(),
+                            "deviceIdle" to power.isDeviceIdleMode.toString(),
+                            "batteryExempt" to power.isIgnoringBatteryOptimizations(packageName).toString(),
+                            "backgroundPermission" to hasBackgroundLocationPermission().toString()
+                        )
                     )
-                    fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                        .addOnSuccessListener { location ->
-                            if (location != null) {
-                                reportDebugEvent(
-                                    "service_location_watchdog_fix_success",
-                                    mapOf(
-                                        "lat" to location.latitude.toString(),
-                                        "lng" to location.longitude.toString(),
-                                        "acc" to location.accuracy.toString()
-                                    )
-                                )
-                                persistLocation(location)
-                            }
-                        }
-                        .addOnFailureListener { error ->
-                            reportDebugEvent(
-                                "service_location_watchdog_fix_failed",
-                                mapOf("error" to (error.message ?: error.javaClass.simpleName))
-                            )
-                        }
+                    if (now - lastSubscriptionAttemptAt >= LOCATION_RESUBSCRIBE_MS) {
+                        session++
+                        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+                        locationCallback = null
+                        probeCancellation?.cancel()
+                        probeCancellation = null
+                        startLocationUpdates()
+                        return
+                    }
+                    requestCurrentLocationProbe("watchdog")
                 }
                 watchdogHandler.postDelayed(this, WATCHDOG_TICK_MS)
             }
         }
-        lastLocationCallbackAt = System.currentTimeMillis()
+        lastLocationCallbackAt = SystemClock.elapsedRealtime()
         watchdogHandler.postDelayed(locationWatchdog!!, WATCHDOG_TICK_MS)
     }
 
@@ -496,6 +606,7 @@ class TrackingForegroundService : Service() {
     companion object {
         const val ACTION_START = "io.shayne.fogvisitor.action.START_TRACKING"
         const val ACTION_STOP = "io.shayne.fogvisitor.action.STOP_TRACKING"
+        const val ACTION_RESTART = "io.shayne.fogvisitor.action.RESTART_TRACKING"
 
         private const val CHANNEL_ID = "fog_visitor_tracking"
         private const val NOTIFICATION_ID = 1001
@@ -505,9 +616,7 @@ class TrackingForegroundService : Service() {
         private const val MAX_EFFECTIVE_DISTANCE_BY_ACCURACY_METERS = 18f
         private const val ACCURACY_DISTANCE_FACTOR = 0.6f
         private const val MAX_POINT_IDLE_MS = 20_000L
-        private const val MAX_TRACK_GAP_MS = 2 * 60_000L
-        private const val MAX_TRACK_GAP_DISTANCE_METERS = 1_000f
-        private const val MIN_SPEED_FILTER_ELAPSED_MS = 3_000L
+        private const val LOCATION_RESUBSCRIBE_MS = 60_000L
         private const val WATCHDOG_TICK_MS = 15_000L
         private const val LOCATION_CALLBACK_STALL_MS = 20_000L
     }

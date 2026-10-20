@@ -15,7 +15,7 @@ class BootReceiver : BroadcastReceiver() {
             action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED
         ) {
-            val store = NativeTrackStore(context)
+            val store = NativeTrackStore.getInstance(context)
             if (store.shouldTrack() && hasBootTrackingPermission(context)) {
                 val serviceIntent = Intent(context, TrackingForegroundService::class.java).apply {
                     this.action = TrackingForegroundService.ACTION_START

@@ -31,7 +31,7 @@ class JsBridge(
     private val onPickImportMerge: () -> Unit
 ) {
 
-    private val trackStore by lazy { NativeTrackStore(context) }
+    private val trackStore by lazy { NativeTrackStore.getInstance(context) }
     private val cloudPrefs by lazy { context.getSharedPreferences("fog_cloud_archive", Context.MODE_PRIVATE) }
     private val trackingConfigPrefs by lazy { context.getSharedPreferences(TrackingConfig.PREFS_NAME, Context.MODE_PRIVATE) }
 
@@ -149,6 +149,10 @@ class JsBridge(
 
     @JavascriptInterface
     fun getNativeArchiveTracksSince(afterTimestamp: Long): String = trackStore.getArchiveTracksSinceJson(afterTimestamp)
+
+    @JavascriptInterface
+    fun getNativeArchiveChanges(epoch: String, afterRevision: Long): String =
+        trackStore.getArchiveChangesJson(epoch, afterRevision)
 
     @JavascriptInterface
     fun clearNativeArchive() {

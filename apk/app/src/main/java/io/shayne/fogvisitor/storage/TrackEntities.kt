@@ -15,8 +15,22 @@ data class TrackSegmentEntity(
     @ColumnInfo(name = "encoded_path")
     val encodedPath: String,
     @ColumnInfo(name = "bbox_json")
-    val bboxJson: String?
+    val bboxJson: String?,
+    @ColumnInfo(defaultValue = "0")
+    val revision: Long = 0
 )
+
+@Entity(tableName = "archive_sync")
+data class ArchiveSyncEntity(
+    @PrimaryKey val id: Int = 1,
+    val epoch: String,
+    val revision: Long,
+    @ColumnInfo(name = "reset_revision") val resetRevision: Long
+) {
+    fun requiresReset(clientEpoch: String, afterRevision: Long): Boolean =
+        clientEpoch != epoch || afterRevision < resetRevision ||
+            afterRevision > revision || afterRevision < 0
+}
 
 @Entity(tableName = "draft_points", primaryKeys = ["sequence"])
 data class DraftPointEntity(

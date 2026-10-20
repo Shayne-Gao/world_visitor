@@ -206,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.108 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.110 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -432,6 +432,8 @@ button:active { transform: scale(0.92); }
 
     // 恢复 PC 端拖拽默认配置
     const map = L.map('map', {zoomControl: false, tap: false, dragging: true}).setView([1.3521, 103.8198], 15);
+    map.on('movestart zoomstart', () => { window.__fogMapInteracting = true; });
+    map.on('moveend', () => { window.__fogMapInteracting = false; });
 
     // 全局当前位置标识点
     let currentLocationMarker = null;
@@ -707,6 +709,45 @@ button:active { transform: scale(0.92); }
     function yieldToMainThread() {
         return new Promise(resolve => setTimeout(resolve, 0));
     }
+    let geometryWorker = null, geometryJobId = 0;
+    let geometryOwner = null, geometryOwnerRevision = -1, geometryToken = 0;
+    const geometryJobs = new Map();
+    function runGeometryJob(job, onProgress = null) {
+        if (!geometryWorker) {
+            const scripts = ['vendor/turf/turf.min.js', 'geometry-worker.js']
+                .map(path => JSON.stringify(new URL(path, document.baseURI).href));
+            const url = URL.createObjectURL(new Blob([`importScripts(${scripts.join(',')});`], { type: 'text/javascript' }));
+            try {
+                geometryWorker = new Worker(url);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+            geometryWorker.onmessage = ({ data }) => {
+                const pending = geometryJobs.get(data.id);
+                if (!pending) return;
+                if ('done' in data) {
+                    pending.onProgress?.(data.done, data.total);
+                    return;
+                }
+                geometryJobs.delete(data.id);
+                if (data.error) pending.reject(new Error(data.error));
+                else pending.resolve(data.result);
+            };
+            geometryWorker.onerror = (event) => {
+                geometryJobs.forEach(pending => pending.reject(new Error(event.message || 'Geometry worker failed')));
+                geometryJobs.clear();
+                geometryWorker.terminate();
+                geometryWorker = null;
+                geometryOwner = null;
+                reportDebugEvent('web_geometry_worker_error', { error: event.message });
+            };
+        }
+        return new Promise((resolve, reject) => {
+            const id = ++geometryJobId;
+            geometryJobs.set(id, { resolve, reject, onProgress });
+            geometryWorker.postMessage({ id, job });
+        });
+    }
     async function rebuildRenderCacheProgressively(archive, options = {}) {
         const {
             onProgress = null,
@@ -719,42 +760,22 @@ button:active { transform: scale(0.92); }
         archive.renderCache.dailyExplored = archive.renderCache.dailyExplored || {};
         archive.renderCache.regionsCache = archive.renderCache.regionsCache || {};
 
-        let cumulativeExplored = null;
-        archive.renderCache.dailyExplored = {};
         const tracks = [...(archive.sourceOfTruth.tracks || [])].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-        for (let index = 0; index < tracks.length; index++) {
-            const track = tracks[index];
-            if (!track || !track.encodedPath) continue;
-            try {
-                const coords = PolylineUtil.decode(track.encodedPath);
-                if (!coords || !coords.length) continue;
-                const radius = track.brushRadiusKm || 0.02;
-                const mask = coords.length === 1
-                    ? turf.buffer(turf.point(coords[0]), radius, { units: 'kilometers' })
-                    : turf.buffer(turf.lineString(coords), radius, { units: 'kilometers' });
-                cumulativeExplored = cumulativeExplored ? turf.union(cumulativeExplored, mask) : mask;
-                const dateKey = new Date(track.timestamp || Date.now()).toISOString().split('T')[0];
-                archive.renderCache.dailyExplored[dateKey] = archive.renderCache.dailyExplored[dateKey]
-                    ? turf.union(archive.renderCache.dailyExplored[dateKey], mask)
-                    : mask;
-            } catch (e) {}
-
-            if ((index + 1) % chunkSize === 0) {
-                if (onProgress) onProgress(index + 1, tracks.length);
-                await yieldToMainThread();
-            }
-        }
-        if (onProgress) onProgress(tracks.length, tracks.length);
-        archive.renderCache.globalExplored = cumulativeExplored;
-        archive.renderCache.globalFog = cumulativeExplored
-            ? turf.difference(turf.polygon(worldCoords), cumulativeExplored)
-            : turf.polygon(worldCoords);
-        archive.metadata.totalAreaKm2 = cumulativeExplored ? turf.area(cumulativeExplored) / 1000000 : 0;
+        const token = ++geometryToken;
+        const { totalAreaKm2, token: resultToken, full, ...cache } =
+            await runGeometryJob({ mode: 'reset', tracks, token }, onProgress);
+        Object.assign(archive.renderCache, cache);
+        archive.renderCache.geometryVersion = 2;
+        archive.metadata.totalAreaKm2 = totalAreaKm2;
+        geometryOwner = archive;
+        geometryOwnerRevision = window.__fogArchiveRevision || 0;
         return archive;
     }
     async function hydrateNativeRenderCacheAfterBoot() {
         if (!(window.AndroidBridge && location.protocol === 'file:')) return;
-        if (!window.__fogPendingNativeHydration) return;
+        if (!window.__fogPendingNativeHydration || window.__fogHydrationInFlight || window.__fogIncrementalInFlight) return;
+        if ((window.__fogHydrationRetryAt || 0) > Date.now()) return;
+        window.__fogHydrationInFlight = true;
         window.__fogPendingNativeHydration = false;
         const hydrateStartedAt = performance.now();
         const requestedBackground = !!window.__fogHydrateNativeInBackground;
@@ -770,6 +791,7 @@ button:active { transform: scale(0.92); }
         });
         setTimeout(async () => {
             try {
+                const revision = window.__fogArchiveRevision || 0;
                 const raw = AndroidBridge.exportNativeArchiveJson();
                 if (!raw) return;
                 if (overlayToken) appendBlockingOverlayLine('构建探索区域 0/0', true, overlayToken);
@@ -780,7 +802,7 @@ button:active { transform: scale(0.92); }
                     }
                 });
                 if (overlayToken) appendBlockingOverlayLine('渲染地图图层', true, overlayToken);
-                await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: false });
+                await window.__fogApplyNormalizedArchiveToPage(normalized, { showOverlay: false, expectedRevision: revision });
                 reportDebugEvent('web_native_hydration_done', {
                     durationMs: Math.round(performance.now() - hydrateStartedAt),
                     trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
@@ -788,8 +810,11 @@ button:active { transform: scale(0.92); }
                     visible: String(visibleNow)
                 });
             } catch (e) {
+                window.__fogPendingNativeHydration = true;
+                window.__fogHydrationRetryAt = Date.now() + 30_000;
                 reportDebugEvent('web_native_hydration_error', { error: String(e) });
             } finally {
+                window.__fogHydrationInFlight = false;
                 if (overlayToken) clearBlockingOverlay(overlayToken);
                 window.__fogHydrateNativeInBackground = false;
             }
@@ -812,7 +837,7 @@ button:active { transform: scale(0.92); }
 
     async function persistAppDataToLocalCache(data) {
         await localforage.setItem(STORAGE_KEY, data);
-        await localforage.setItem(SNAPSHOT_KEY, data);
+        if (!isNativeTruthMode()) await localforage.setItem(SNAPSHOT_KEY, data);
         await DataManager.clearDiagnostic();
     }
 
@@ -836,7 +861,8 @@ button:active { transform: scale(0.92); }
     }
 
     function hasRenderableMapCache(data) {
-        return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored));
+        return !!(data?.renderCache && (data.renderCache.globalFog || data.renderCache.globalExplored ||
+            data.renderCache.geometryVersion === 2));
     }
 
     const MAX_NATIVE_INCREMENTAL_TRACKS = 1000;
@@ -882,11 +908,14 @@ button:active { transform: scale(0.92); }
     let nativeIncrementalUiFlushTimer = null;
     let nativeIncrementalUiFlushPromise = null;
     async function flushNativeIncrementalUi(reason = 'unknown') {
+        if (document.hidden || window.__fogMapInteracting || window.__fogIncrementalInFlight) {
+            scheduleNativeIncrementalUiFlush(reason, 1000);
+            return;
+        }
         if (nativeIncrementalUiFlushPromise) return nativeIncrementalUiFlushPromise;
         nativeIncrementalUiFlushPromise = (async () => {
             const startedAt = performance.now();
             nativeIncrementalUiFlushTimer = null;
-            appData.metadata.totalAreaKm2 = calcTotalArea();
             updateStatsUI();
             buildTimeline();
             renderLayers();
@@ -903,8 +932,9 @@ button:active { transform: scale(0.92); }
     }
 
     function scheduleNativeIncrementalUiFlush(reason = 'unknown', delayMs = 15000) {
-        if (nativeIncrementalUiFlushTimer) clearTimeout(nativeIncrementalUiFlushTimer);
+        if (nativeIncrementalUiFlushTimer) return;
         nativeIncrementalUiFlushTimer = setTimeout(() => {
+            nativeIncrementalUiFlushTimer = null;
             flushNativeIncrementalUi(reason);
         }, delayMs);
         reportDebugEvent('web_native_incremental_ui_flush_scheduled', {
@@ -915,6 +945,8 @@ button:active { transform: scale(0.92); }
     window.flushNativeIncrementalUi = flushNativeIncrementalUi;
 
     async function syncNativeArchiveIncrementally(summary, currentLatestTimestamp, options = {}) {
+        if (window.__fogIncrementalInFlight || window.__fogHydrationInFlight) return;
+        window.__fogIncrementalInFlight = true;
         const visibleNow = document.visibilityState === 'visible';
         const overlayToken = options.showOverlay === true ? showBlockingOverlay(options.title || '正在同步新增轨迹...') : null;
         const startedAt = performance.now();
@@ -928,13 +960,57 @@ button:active { transform: scale(0.92); }
         });
         try {
             if (overlayToken) appendBlockingOverlayLine('读取新增轨迹', true, overlayToken);
-            const raw = AndroidBridge.getNativeArchiveTracksSince(currentLatestTimestamp);
-            const tracks = JSON.parse(raw || '[]');
-            if (overlayToken) appendBlockingOverlayLine(`应用新增轨迹 0/${tracks.length}`, true, overlayToken);
-            for (let index = 0; index < tracks.length; index += 1) {
-                await applyNativeTrackIncrementally(tracks[index]);
-                if (overlayToken) updateBlockingOverlayLastLine(`应用新增轨迹 ${index + 1}/${tracks.length}`, overlayToken);
+            const changes = JSON.parse(AndroidBridge.getNativeArchiveChanges(
+                appData.metadata.nativeEpoch || '', appData.metadata.nativeRevision || 0));
+            if (changes.resetRequired) {
+                window.__fogPendingNativeHydration = true;
+                return;
             }
+            const tracks = changes.tracks || [];
+            if (overlayToken) appendBlockingOverlayLine(`应用新增轨迹 0/${tracks.length}`, true, overlayToken);
+            const targetData = appData;
+            const revision = window.__fogArchiveRevision || 0;
+            let rebuiltCache = null;
+            if (geometryOwner !== targetData || geometryOwnerRevision !== revision) {
+                const token = ++geometryToken;
+                rebuiltCache = await runGeometryJob({ mode: 'reset', tracks: targetData.sourceOfTruth.tracks, token });
+                geometryOwner = targetData;
+                geometryOwnerRevision = revision;
+            }
+            const result = await runGeometryJob({ mode: 'update', tracks, token: geometryToken });
+            // An import may have replaced the archive while the worker was busy.
+            if (appData !== targetData || revision !== (window.__fogArchiveRevision || 0) ||
+                window.__fogEditModeActive) {
+                window.__fogPendingNativeHydration = true;
+                return;
+            }
+            if (rebuiltCache) {
+                appData.renderCache.dailyExplored = rebuiltCache.dailyExplored;
+                appData.renderCache.globalExplored = rebuiltCache.globalExplored;
+                appData.renderCache.globalFog = null;
+                appData.renderCache.geometryVersion = 2;
+                appData.metadata.totalAreaKm2 = rebuiltCache.totalAreaKm2;
+            }
+            if (!result.unchanged) {
+                appData.renderCache.globalExplored = result.globalExplored;
+                appData.renderCache.globalFog = null;
+                appData.renderCache.geometryVersion = 2;
+                for (const [day, geometry] of Object.entries(result.dailyPatch || {})) {
+                    if (geometry) appData.renderCache.dailyExplored[day] = geometry;
+                    else delete appData.renderCache.dailyExplored[day];
+                }
+                appData.metadata.totalAreaKm2 = result.totalAreaKm2;
+            }
+            for (const track of tracks) {
+                upsertTrackIntoSourceOfTruth(track);
+            }
+            if (getTrackCountFromData(appData) !== changes.trackCount) {
+                window.__fogPendingNativeHydration = true;
+                geometryOwner = null;
+                return;
+            }
+            appData.metadata.nativeEpoch = changes.epoch;
+            appData.metadata.nativeRevision = changes.revision;
             if (overlayToken) appendBlockingOverlayLine('刷新地图图层', true, overlayToken);
             if (deferUiFlush) scheduleNativeIncrementalUiFlush(options.reason || 'native_incremental_tracking');
             else await flushNativeIncrementalUi(options.reason || 'native_incremental_immediate');
@@ -946,11 +1022,14 @@ button:active { transform: scale(0.92); }
                 deferUiFlush: String(deferUiFlush)
             });
         } catch (error) {
+            geometryOwner = null;
+            window.__fogPendingNativeHydration = true;
             reportDebugEvent('web_native_archive_incremental_apply_error', {
                 error: String(error)
             });
             throw error;
         } finally {
+            window.__fogIncrementalInFlight = false;
             if (overlayToken) clearBlockingOverlay(overlayToken);
         }
     }
@@ -970,12 +1049,11 @@ button:active { transform: scale(0.92); }
                 reason: pending.reason || 'cold_start_cache_stale',
                 title: '正在补齐新增轨迹...'
             });
-            window.__fogPendingNativeHydration = false;
             window.__fogLastNativeArchiveSummary = pending.summary;
             reportDebugEvent('web_native_archive_incremental_catchup_done', {
                 reason: String(pending.reason || 'unknown')
             });
-            return true;
+            return !window.__fogPendingNativeHydration;
         } catch (error) {
             window.__fogPendingNativeHydration = true;
             window.__fogHydrateNativeInBackground = true;
@@ -1121,6 +1199,7 @@ button:active { transform: scale(0.92); }
         return entries.map(([key, value]) => `${key}=${value}`).join(' ');
     }
     function appendTrackingDebugLine(source, event, payload = {}, at = Date.now(), uniqueKey = null) {
+        if (window.__fogTrackingDebugCompact) return;
         const container = document.getElementById('trackingDebugLog');
         if (!container) return;
         const key = uniqueKey || `${source}:${event}:${at}:${JSON.stringify(payload)}`;
@@ -1319,8 +1398,9 @@ button:active { transform: scale(0.92); }
                             localDailyKeys: String(localDailyKeyCount)
                         });
                         const nativeMatchesLocal =
-                            nativeSummary.trackCount === localTrackCount &&
-                            (nativeSummary.latestTimestamp || 0) === localLatestTimestamp;
+                            nativeSummary.epoch === localPrimary.metadata.nativeEpoch &&
+                            nativeSummary.revision === localPrimary.metadata.nativeRevision &&
+                            localPrimary.renderCache.geometryVersion === 2;
                         if (nativeMatchesLocal && !shouldRepairDailyCache) {
                             window.__fogPendingNativeHydration = false;
                             window.__fogHydrateNativeInBackground = false;
@@ -1339,17 +1419,15 @@ button:active { transform: scale(0.92); }
                             });
                             return localPrimary;
                         }
-                        const nativeAhead =
-                            nativeSummary.trackCount > localTrackCount ||
-                            nativeSummary.latestTimestamp > localLatestTimestamp;
+                        const nativeAhead = !nativeMatchesLocal;
                         if (nativeAhead) {
                             const addedTrackCount = Math.max(0, (nativeSummary.trackCount || 0) - localTrackCount);
                             const canIncrementallyCatchUp =
-                                localTrackCount > 0 &&
                                 !shouldRepairDailyCache &&
-                                addedTrackCount > 0 &&
-                                addedTrackCount <= MAX_NATIVE_INCREMENTAL_TRACKS &&
-                                nativeSummary.latestTimestamp > localLatestTimestamp;
+                                localPrimary.renderCache.geometryVersion === 2 &&
+                                nativeSummary.epoch === localPrimary.metadata.nativeEpoch &&
+                                localPrimary.metadata.nativeRevision >= nativeSummary.resetRevision &&
+                                localPrimary.metadata.nativeRevision <= nativeSummary.revision;
                             window.__fogPendingNativeHydration = !canIncrementallyCatchUp;
                             window.__fogHydrateNativeInBackground = true;
                             window.__fogPendingNativeIncrementalSync = canIncrementallyCatchUp ? {
@@ -1546,21 +1624,48 @@ button:active { transform: scale(0.92); }
             L.setOptions(this, options);
             this._geometry = geometry || null;
         },
+        setGeometry: function(geometry, options) {
+            if (this._geometry !== geometry) {
+                this._geometry = geometry || null;
+                this._projectedZoom = null;
+            }
+            if (options) L.setOptions(this, options);
+            if (this._canvas) this._canvas.style.zIndex = this.options.zIndex || 450;
+            if (this._map) this._scheduleReset();
+            return this;
+        },
         onAdd: function(layerMap) {
             this._map = layerMap;
             this._canvas = L.DomUtil.create('canvas', 'leaflet-fog-canvas-layer');
             this._canvas.style.position = 'absolute';
             this._canvas.style.pointerEvents = 'none';
             this._canvas.style.zIndex = this.options.zIndex || 450;
+            L.DomUtil.addClass(this._canvas, 'leaflet-zoom-animated');
             layerMap.getPanes().overlayPane.appendChild(this._canvas);
-            layerMap.on('moveend zoomend resize', this._reset, this);
+            layerMap.on('moveend zoomend resize', this._scheduleReset, this);
+            layerMap.on('zoomanim', this._animateZoom, this);
             this._reset();
         },
         onRemove: function(layerMap) {
-            layerMap.off('moveend zoomend resize', this._reset, this);
+            layerMap.off('moveend zoomend resize', this._scheduleReset, this);
+            layerMap.off('zoomanim', this._animateZoom, this);
+            if (this._frame) cancelAnimationFrame(this._frame);
             if (this._canvas) L.DomUtil.remove(this._canvas);
             this._canvas = null;
             this._map = null;
+        },
+        _scheduleReset: function() {
+            if (this._frame) return;
+            this._frame = requestAnimationFrame(() => {
+                this._frame = null;
+                this._reset();
+            });
+        },
+        _animateZoom: function(event) {
+            if (!this._drawTopLeft) return;
+            const scale = this._map.getZoomScale(event.zoom, this._drawZoom);
+            const offset = this._map._latLngToNewLayerPoint(this._drawTopLeft, event.zoom, event.center);
+            L.DomUtil.setTransform(this._canvas, offset, scale);
         },
         _reset: function() {
             if (!this._map || !this._canvas) return;
@@ -1569,10 +1674,15 @@ button:active { transform: scale(0.92); }
             const padY = Math.round(size.y * 0.5);
             const drawSize = L.point(size.x + padX * 2, size.y + padY * 2);
             const topLeft = this._map.containerPointToLayerPoint([-padX, -padY]);
+            this._drawTopLeft = this._map.layerPointToLatLng(topLeft);
+            this._drawZoom = this._map.getZoom();
+            this._drawSize = drawSize;
             const ratio = Math.min(window.devicePixelRatio || 1, 2);
             L.DomUtil.setPosition(this._canvas, topLeft);
-            this._canvas.width = Math.max(1, Math.round(drawSize.x * ratio));
-            this._canvas.height = Math.max(1, Math.round(drawSize.y * ratio));
+            const width = Math.max(1, Math.round(drawSize.x * ratio));
+            const height = Math.max(1, Math.round(drawSize.y * ratio));
+            if (this._canvas.width !== width) this._canvas.width = width;
+            if (this._canvas.height !== height) this._canvas.height = height;
             this._canvas.style.width = `${drawSize.x}px`;
             this._canvas.style.height = `${drawSize.y}px`;
             const ctx = this._canvas.getContext('2d');
@@ -1600,57 +1710,70 @@ button:active { transform: scale(0.92); }
             ctx.strokeStyle = this.options.strokeStyle || 'rgba(40,167,69,0.65)';
             ctx.lineWidth = this.options.lineWidth || 0;
             if (this.options.fill !== false) this._drawGeometry(ctx, this._geometry, topLeft, true);
-            if (this.options.stroke) this._drawGeometry(ctx, this._geometry, topLeft, false);
+            if (this.options.stroke && this.options.lineWidth > 0) this._drawGeometry(ctx, this._geometry, topLeft, false);
             ctx.restore();
         },
         _drawGeometry: function(ctx, geojson, topLeft, fill) {
             if (!geojson) return;
-            const type = geojson.type;
-            if (type === 'Feature') return this._drawGeometry(ctx, geojson.geometry, topLeft, fill);
-            if (type === 'FeatureCollection') {
-                (geojson.features || []).forEach(feature => this._drawGeometry(ctx, feature, topLeft, fill));
-                return;
+            const zoom = this._map.getZoom();
+            if (this._projectedZoom !== zoom || this._projectedBaseLayer !== currentLayerKey) {
+                this._projected = [];
+                const visit = geometry => {
+                    if (!geometry) return;
+                    if (geometry.type === 'Feature') return visit(geometry.geometry);
+                    if (geometry.type === 'FeatureCollection') return geometry.features.forEach(visit);
+                    if (geometry.type === 'GeometryCollection') return geometry.geometries.forEach(visit);
+                    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+                    (polygons || []).forEach(rings => {
+                        const path = new Path2D();
+                        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                        rings.forEach(ring => {
+                            ring.forEach((coord, index) => {
+                                const p = this._map.project([coord[1], coord[0]], zoom);
+                                minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+                                maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+                                if (index === 0) path.moveTo(p.x, p.y);
+                                else path.lineTo(p.x, p.y);
+                            });
+                            path.closePath();
+                        });
+                        this._projected.push({ path, minX, minY, maxX, maxY });
+                    });
+                };
+                visit(geojson);
+                this._projectedZoom = zoom;
+                this._projectedBaseLayer = currentLayerKey;
             }
-            if (type === 'GeometryCollection') {
-                (geojson.geometries || []).forEach(geometry => this._drawGeometry(ctx, geometry, topLeft, fill));
-                return;
-            }
-            if (type === 'Polygon') return this._drawPolygon(ctx, geojson.coordinates || [], topLeft, fill);
-            if (type === 'MultiPolygon') {
-                (geojson.coordinates || []).forEach(polygon => this._drawPolygon(ctx, polygon, topLeft, fill));
-            }
-        },
-        _drawPolygon: function(ctx, rings, topLeft, fill) {
-            if (!rings || !rings.length) return;
-            ctx.beginPath();
-            rings.forEach(ring => {
-                (ring || []).forEach((coord, index) => {
-                    const point = this._map.latLngToLayerPoint([coord[1], coord[0]]).subtract(topLeft);
-                    if (index === 0) ctx.moveTo(point.x, point.y);
-                    else ctx.lineTo(point.x, point.y);
-                });
-                ctx.closePath();
+            const origin = this._map.getPixelOrigin().add(topLeft);
+            const margin = this.options.lineWidth || 0;
+            ctx.save();
+            ctx.translate(-origin.x, -origin.y);
+            this._projected.forEach(item => {
+                if (item.maxX < origin.x - margin || item.maxY < origin.y - margin ||
+                    item.minX > origin.x + this._drawSize.x + margin ||
+                    item.minY > origin.y + this._drawSize.y + margin) return;
+                if (fill) ctx.fill(item.path, 'evenodd');
+                else ctx.stroke(item.path);
             });
-            if (fill) {
-                try { ctx.fill('evenodd'); }
-                catch (err) { ctx.fill(); }
-            } else {
-                ctx.stroke();
-            }
+            ctx.restore();
         }
     });
 
     function createFogMaskLayer(exploredGeometry, zoom) {
-        return new FogCanvasLayer(getDisplayGeometry('explored', exploredGeometry, zoom), {
+        const geometry = getDisplayGeometry('explored', exploredGeometry, zoom);
+        const options = {
             mode: 'fogMask',
             fillStyle: 'rgba(0,0,0,0.65)',
             zIndex: 450
-        });
+        };
+        return fogLayer instanceof FogCanvasLayer
+            ? fogLayer.setGeometry(geometry, options) : new FogCanvasLayer(geometry, options);
     }
 
     function createExploredCanvasLayer(geometry, zoom, options) {
         const cacheKey = options.cacheKey || 'explored';
-        return new FogCanvasLayer(getDisplayGeometry(cacheKey, geometry, zoom), {
+        const displayGeometry = getDisplayGeometry(cacheKey, geometry, zoom);
+        const layerOptions = {
             mode: 'explored',
             fill: options.fill,
             stroke: options.stroke,
@@ -1658,12 +1781,18 @@ button:active { transform: scale(0.92); }
             strokeStyle: options.strokeStyle,
             lineWidth: options.lineWidth,
             zIndex: options.zIndex || 451
-        });
+        };
+        const existing = cacheKey === 'fog' ? fogLayer : exploredLayer;
+        return existing instanceof FogCanvasLayer
+            ? existing.setGeometry(displayGeometry, layerOptions) : new FogCanvasLayer(displayGeometry, layerOptions);
     }
 
     function renderLayers() {
         const renderStartedAt = performance.now();
-        if(fogLayer) map.removeLayer(fogLayer); if(exploredLayer) map.removeLayer(exploredLayer); if(savedTrackDebugLayer) map.removeLayer(savedTrackDebugLayer);
+        if(savedTrackDebugLayer) map.removeLayer(savedTrackDebugLayer);
+        if(fogLayer && (isEditMode || isAutoRecording)) map.removeLayer(fogLayer);
+        if(exploredLayer && (isAutoRecording || viewTodayOnly || !appData.renderCache.globalExplored ||
+            (!isEditMode && map.getZoom() >= 11))) map.removeLayer(exploredLayer);
         
         // 自动追踪模式下：隐藏迷雾和探索区域多边形，地图全亮
         if (isAutoRecording) {
@@ -1729,7 +1858,13 @@ button:active { transform: scale(0.92); }
     }
     function updateTimelineLabel() { const idx = parseInt(document.getElementById('timelineSlider').value), label = document.getElementById('timelineLabel'); if(idx === 0) label.textContent = "时光机: 原始世界 (未探索)"; else if(idx === timelineKeys.length) label.textContent = `最新进度 (${timelineKeys[idx-1]})`; else label.textContent = `历史回溯 (${timelineKeys[idx-1]})`; }
     function getTimelineFogAtIndex(idx) {
-        if (idx === timelineKeys.length) return appData.renderCache.globalFog;
+        if (idx === timelineKeys.length) {
+            if (!appData.renderCache.globalFog) appData.renderCache.globalFog =
+                appData.renderCache.globalExplored
+                    ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored)
+                    : turf.polygon(worldCoords);
+            return appData.renderCache.globalFog;
+        }
         if (fogCache[idx]) return fogCache[idx];
         let start = idx - 1;
         while (start > 0 && !fogCache[start]) start--;
@@ -1832,6 +1967,7 @@ button:active { transform: scale(0.92); }
         });
         //#endregion
         if(!coordsArray || coordsArray.length === 0) return;
+        window.__fogArchiveRevision = (window.__fogArchiveRevision || 0) + 1;
         const overlayTitle = trackSource === 'web_draw'
             ? '正在合并标记数据...'
             : (trackSource === 'manual_locate' ? '正在记录当前位置...' : '正在恢复轨迹数据...');
@@ -1870,7 +2006,11 @@ button:active { transform: scale(0.92); }
         try {
             addTrackOverlayLine('合并迷雾数据');
             const diffStartedAt = performance.now();
-            let newFog = turf.difference(appData.renderCache.globalFog, mask);
+            const currentFog = appData.renderCache.globalFog ||
+                (appData.renderCache.globalExplored
+                    ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored)
+                    : turf.polygon(worldCoords));
+            let newFog = turf.difference(currentFog, mask);
             reportDebugEvent('web_process_track_difference_done', {
                 source: trackSource,
                 durationMs: Math.round(performance.now() - diffStartedAt),
@@ -1994,7 +2134,7 @@ button:active { transform: scale(0.92); }
                 alert('未读取到可用本地存档，当前显示为空白世界。\n可能原因：域名/协议变化、浏览器清理站点数据、主存档损坏。\n系统没有找到可恢复的快照。\n建议先检查当前访问域名，并尝试导入之前导出的存档。');
             }
         }
-        if(!appData.renderCache.globalFog) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
+        if(!appData.renderCache.globalFog && appData.renderCache.geometryVersion !== 2) { appData.renderCache.globalFog = appData.renderCache.globalExplored ? turf.difference(turf.polygon(worldCoords), appData.renderCache.globalExplored) : turf.polygon(worldCoords); }
 
         updateStatsUI();
 
@@ -2043,16 +2183,32 @@ button:active { transform: scale(0.92); }
         });
     }
     window.__fogApplyNormalizedArchiveToPage = async function(normalized, options = {}) {
+        if (options.expectedRevision !== undefined &&
+            options.expectedRevision !== (window.__fogArchiveRevision || 0)) {
+            window.__fogPendingNativeHydration = true;
+            return;
+        }
+        const revision = (window.__fogArchiveRevision || 0) + 1;
+        window.__fogArchiveRevision = revision;
         const showOverlay = options.showOverlay !== false;
         const persistLocalCache = options.persistLocalCache !== false;
         const overlayToken = showOverlay ? showBlockingOverlay('正在应用数据...') : null;
         try {
+            if (!hasRenderableMapCache(normalized)) {
+                if (overlayToken) appendBlockingOverlayLine('后台计算探索区域', true, overlayToken);
+                normalized = await rebuildRenderCacheProgressively(normalized, {
+                    onProgress(done, total) {
+                        if (overlayToken) updateBlockingOverlayLastLine(`计算探索区域 ${done}/${total}`, overlayToken);
+                    }
+                });
+            }
+            if (revision !== window.__fogArchiveRevision) return;
             if (overlayToken) appendBlockingOverlayLine('应用存档数据', true, overlayToken);
             setAppData(normalized);
             if (persistLocalCache) {
                 if (overlayToken) appendBlockingOverlayLine('写入本地缓存', true, overlayToken);
                 await localforage.setItem(STORAGE_KEY, normalized);
-                await localforage.setItem(SNAPSHOT_KEY, normalized);
+                if (!isNativeTruthMode()) await localforage.setItem(SNAPSHOT_KEY, normalized);
                 await DataManager.clearDiagnostic();
                 reportDebugEvent('web_apply_normalized_cache_saved', {
                     trackCount: String(normalized?.sourceOfTruth?.tracks?.length || 0),
@@ -2092,7 +2248,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.108',
+            appVersion: 'v0.1.110',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
@@ -2687,10 +2843,7 @@ button:active { transform: scale(0.92); }
         if (e.button === 0) {
             if (isEditMode) {
                 startDraw(map.mouseEventToLatLng(e)); 
-            } else {
-                if (window.__fogFollowCurrentLocation) setFollowCurrentLocation(false, 'user_mouse_drag_map');
-                isDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing';
-            }
+            } // Leaflet handles normal dragging; do not also call panBy per mousemove.
         } else if (e.button === 2) { 
             if (window.__fogFollowCurrentLocation) setFollowCurrentLocation(false, 'user_mouse_drag_map');
             e.preventDefault(); isRightDragging = true; lastX = e.clientX; lastY = e.clientY; document.getElementById('map').style.cursor = 'grabbing'; 

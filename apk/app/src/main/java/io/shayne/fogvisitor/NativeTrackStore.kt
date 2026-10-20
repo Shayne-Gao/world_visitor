@@ -4,8 +4,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.AtomicFile
 import io.shayne.fogvisitor.storage.DraftPointEntity
 import io.shayne.fogvisitor.storage.FogVisitorDatabase
 import io.shayne.fogvisitor.storage.TrackDao
@@ -19,11 +21,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.Callable
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-class NativeTrackStore(private val context: Context) {
+class NativeTrackStore private constructor(private val context: Context) {
 
     private val legacyArchiveFile = File(context.filesDir, "fog_apk_archive.json")
     private val legacyArchiveBackupFile = File(context.filesDir, "fog_apk_archive.backup.json")
@@ -31,19 +34,32 @@ class NativeTrackStore(private val context: Context) {
     private val legacyDraftBackupFile = File(context.filesDir, "fog_apk_draft.backup.json")
     private val exploredCellsFile = File(context.filesDir, "fog_apk_explored_cells_v1.txt")
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-    private val dao: TrackDao = FogVisitorDatabase.getInstance(context).trackDao()
+    private val database = FogVisitorDatabase.getInstance(context)
+    private val dao: TrackDao = database.trackDao()
     private val storeThreadRef = AtomicReference<Thread?>(null)
     private val storeExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "fog-visitor-store").also { storeThreadRef.set(it) }
     }
     private val exploredCells = linkedSetOf<String>()
     private var exploredCellsLoaded = false
+    private val debugFile = AtomicFile(File(context.filesDir, "tracking-diagnostics.json"))
+    private var lastDebugPersistAt = 0L
 
     init {
+        runCatching {
+            val events = JSONArray(debugFile.openRead().use { it.readBytes().toString(Charsets.UTF_8) })
+            synchronized(DEBUG_LOG_LOCK) {
+                for (i in maxOf(0, events.length() - MAX_TRACKING_DEBUG_EVENTS) until events.length()) {
+                    val event = events.getJSONObject(i)
+                    trackingDebugEvents.addLast(event)
+                    trackingDebugSeq = maxOf(trackingDebugSeq, event.optLong("seq"))
+                }
+            }
+        }
         migrateLegacyJsonIfNeeded()
     }
 
-    fun appendDraftPoint(lng: Double, lat: Double, accuracy: Double? = null) {
+    fun appendDraftPoint(lng: Double, lat: Double, accuracy: Double? = null, sampledAt: Long = System.currentTimeMillis()) {
         runStore {
             val points = readDraftPoints().toMutableList()
             points.add(listOf(lng, lat))
@@ -61,7 +77,7 @@ class NativeTrackStore(private val context: Context) {
                 isTracking = true,
                 shouldTrack = true,
                 draftPointCount = points.size,
-                lastPointAt = System.currentTimeMillis(),
+                lastPointAt = sampledAt,
                 lastLng = lng,
                 lastLat = lat,
                 lastAccuracy = accuracy
@@ -101,7 +117,7 @@ class NativeTrackStore(private val context: Context) {
                     isTracking = true,
                     shouldTrack = true,
                     draftPointCount = seed.size,
-                    lastPointAt = System.currentTimeMillis(),
+                    lastPointAt = currentLivePointAt(),
                     lastLng = lastPoint?.getOrNull(0),
                     lastLat = lastPoint?.getOrNull(1)
                 )
@@ -135,7 +151,7 @@ class NativeTrackStore(private val context: Context) {
                 isTracking = true,
                 shouldTrack = true,
                 draftPointCount = seed.size,
-                lastPointAt = System.currentTimeMillis(),
+                lastPointAt = currentLivePointAt(),
                 lastLng = lastPoint?.getOrNull(0),
                 lastLat = lastPoint?.getOrNull(1)
             )
@@ -160,11 +176,12 @@ class NativeTrackStore(private val context: Context) {
             )
             if (points.size < minPointCount || shouldDiscardCheckpoint(points)) {
                 clearDraft()
+                prefs.edit().putBoolean(KEY_FORCE_NEW_SEGMENT, true).apply()
                 updateStatus(
                     isTracking = true,
                     shouldTrack = true,
                     draftPointCount = 0,
-                    lastPointAt = System.currentTimeMillis(),
+                    lastPointAt = currentLivePointAt(),
                     lastLng = points.lastOrNull()?.getOrNull(0),
                     lastLat = points.lastOrNull()?.getOrNull(1)
                 )
@@ -181,11 +198,12 @@ class NativeTrackStore(private val context: Context) {
             )
             val persistResult = persistTrackCandidate(track)
             clearDraft()
+            prefs.edit().putBoolean(KEY_FORCE_NEW_SEGMENT, true).apply()
             updateStatus(
                 isTracking = true,
                 shouldTrack = true,
                 draftPointCount = 0,
-                lastPointAt = System.currentTimeMillis(),
+                lastPointAt = currentLivePointAt(),
                 lastLng = points.lastOrNull()?.getOrNull(0),
                 lastLat = points.lastOrNull()?.getOrNull(1)
             )
@@ -226,7 +244,7 @@ class NativeTrackStore(private val context: Context) {
                 isTracking = false,
                 shouldTrack = false,
                 draftPointCount = 0,
-                lastPointAt = System.currentTimeMillis(),
+                lastPointAt = currentLivePointAt(),
                 lastLng = lastPoint?.getOrNull(0),
                 lastLat = lastPoint?.getOrNull(1)
             )
@@ -237,6 +255,8 @@ class NativeTrackStore(private val context: Context) {
     fun readArchiveTracks(): List<TrackRecord> {
         return runStore { dao.getAllTracks().map { it.toModel() } }
     }
+
+    fun trackCount(): Int = runStore { dao.getTrackCount() }
 
     fun readDraftPoints(): List<List<Double>> {
         return runStore { dao.getDraftPoints().map { listOf(it.lng, it.lat) } }
@@ -256,6 +276,9 @@ class NativeTrackStore(private val context: Context) {
     }
 
     fun exportArchiveToDownloads(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw UnsupportedOperationException("请使用导出文件按钮选择保存位置。")
+        }
         val json = exportArchiveJson()
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val fileName = "fog_apk_export_$timestamp.json"
@@ -466,6 +489,10 @@ class NativeTrackStore(private val context: Context) {
                 put("shouldTrack", prefs.getBoolean(KEY_SHOULD_TRACK, false))
                 put("draftPointCount", prefs.getInt(KEY_DRAFT_COUNT, 0))
                 put("lastPointAt", prefs.getLong(KEY_LAST_POINT_AT, 0L))
+                put("lastCallbackAt", prefs.getLong("diagnostic_last_callback", 0L))
+                put("lastPersistedAt", prefs.getLong("diagnostic_last_persisted", 0L))
+                put("lastServiceStartAt", prefs.getLong("diagnostic_service_start", 0L))
+                put("lastExplicitStopAt", prefs.getLong("diagnostic_explicit_stop", 0L))
                 put("trackCount", dao.getTrackCount())
                 put("archivePath", "room://fog_visitor_truth.db/track_segments")
                 put("draftPath", "room://fog_visitor_truth.db/draft_points")
@@ -493,6 +520,10 @@ class NativeTrackStore(private val context: Context) {
             JSONObject().apply {
                 put("trackCount", dao.getTrackCount())
                 put("latestTimestamp", latestTimestamp)
+                val sync = dao.getSyncState()
+                put("epoch", sync.epoch)
+                put("revision", sync.revision)
+                put("resetRevision", sync.resetRevision)
                 put("archiveExists", dao.getTrackCount() > 0)
                 put("draftExists", readDraftPoints().isNotEmpty())
                 put("hasRecoverableDraft", hasRecoverableDraft())
@@ -521,6 +552,20 @@ class NativeTrackStore(private val context: Context) {
                 }
             }.toString()
         }
+    }
+
+    fun getArchiveChangesJson(epoch: String, afterRevision: Long): String = runStore {
+        val sync = dao.getSyncState()
+        val reset = sync.requiresReset(epoch, afterRevision)
+        JSONObject().apply {
+            put("epoch", sync.epoch)
+            put("revision", sync.revision)
+            put("resetRequired", reset)
+            put("trackCount", dao.getTrackCount())
+            put("tracks", JSONArray().apply {
+                if (!reset) dao.getTracksAfterRevision(afterRevision).forEach { put(trackToJson(it.toModel())) }
+            })
+        }.toString()
     }
 
     fun markTrackingRunning(isRunning: Boolean, shouldTrack: Boolean = prefs.getBoolean(KEY_SHOULD_TRACK, false)) {
@@ -575,7 +620,7 @@ class NativeTrackStore(private val context: Context) {
         }
     }
 
-    fun latestTrackTimestamp(): Long = runStore { readArchiveTracks().maxOfOrNull { it.timestamp } ?: 0L }
+    fun latestTrackTimestamp(): Long = runStore { dao.getLatestTimestamp() ?: 0L }
 
     fun hasArchive(): Boolean = runStore { dao.getTrackCount() > 0 }
 
@@ -629,6 +674,14 @@ class NativeTrackStore(private val context: Context) {
     }
 
     fun appendTrackingDebugEvent(name: String, payload: Map<String, String>) {
+        val diagnosticKey = when (name) {
+            "service_location_batch" -> "diagnostic_last_callback"
+            "service_location_persisted" -> "diagnostic_last_persisted"
+            "service_start_in_foreground" -> "diagnostic_service_start"
+            "service_explicit_stop" -> "diagnostic_explicit_stop"
+            else -> null
+        }
+        if (diagnosticKey != null) prefs.edit().putLong(diagnosticKey, System.currentTimeMillis()).apply()
         val event = JSONObject().apply {
             put("seq", nextTrackingDebugSeq())
             put("event", name)
@@ -639,6 +692,22 @@ class NativeTrackStore(private val context: Context) {
             trackingDebugEvents.addLast(event)
             while (trackingDebugEvents.size > MAX_TRACKING_DEBUG_EVENTS) {
                 trackingDebugEvents.removeFirst()
+            }
+        }
+        // Bounded disk snapshots survive process death without writing on every GPS point.
+        storeExecutor.execute {
+            val now = System.currentTimeMillis()
+            if (now - lastDebugPersistAt < 30_000L &&
+                !name.contains("failed") && !name.contains("stop") &&
+                !name.contains("on_create") && !name.contains("watchdog")) return@execute
+            var output: java.io.FileOutputStream? = null
+            try {
+                output = debugFile.startWrite()
+                output.write(getTrackingDebugEventsJson().toString().toByteArray(Charsets.UTF_8))
+                debugFile.finishWrite(output)
+                lastDebugPersistAt = now
+            } catch (_: Exception) {
+                output?.let { debugFile.failWrite(it) }
             }
         }
     }
@@ -754,29 +823,26 @@ class NativeTrackStore(private val context: Context) {
     )
 
     private fun persistTrackCandidate(track: TrackRecord): PersistTrackResult {
-        val candidateCells = collectTrackCells(track)
-        val hasNewExploredCells = candidateCells.any { it !in getExploredCells() }
         val latestTrack = dao.getLatestTrack()?.toModel()
-        val trackToPersist = if (latestTrack != null && shouldMergeIntoLatest(latestTrack, track)) {
+        val trackToPersist = if (!prefs.getBoolean(KEY_FORCE_NEW_SEGMENT, false) &&
+            latestTrack != null && shouldMergeIntoLatest(latestTrack, track)) {
             mergeTracks(latestTrack, track)
         } else {
             track
         }
         val persistReason = if (trackToPersist.id == track.id) {
-            if (hasNewExploredCells) "persisted" else "persisted_already_explored"
+            "persisted"
         } else {
-            if (hasNewExploredCells) "merged_into_latest" else "merged_already_explored"
+            "merged_into_latest"
         }
         dao.upsertTrack(trackToPersist.toEntity())
-        if (hasNewExploredCells) appendExploredCells(candidateCells)
+        prefs.edit().putBoolean(KEY_FORCE_NEW_SEGMENT, false).apply()
         appendTrackingDebugEvent(
             "native_persist_result",
             mapOf(
                 "trackId" to track.id,
                 "storedTrackId" to trackToPersist.id,
                 "reason" to persistReason,
-                "candidateCells" to candidateCells.size.toString(),
-                "hasNewExploredCells" to hasNewExploredCells.toString(),
                 "trackCount" to dao.getTrackCount().toString()
             )
         )
@@ -818,17 +884,10 @@ class NativeTrackStore(private val context: Context) {
     }
 
     private fun replaceExploredCells(tracks: List<TrackRecord>) {
-        val rebuilt = linkedSetOf<String>()
-        tracks.forEach { rebuilt.addAll(collectTrackCells(it)) }
+        // This legacy grid no longer controls persistence; geometry is derived in the Worker.
         exploredCells.clear()
-        exploredCells.addAll(rebuilt)
         exploredCellsLoaded = true
-        if (rebuilt.isEmpty()) {
-            if (exploredCellsFile.exists()) exploredCellsFile.delete()
-            return
-        }
-        exploredCellsFile.parentFile?.mkdirs()
-        exploredCellsFile.writeText(rebuilt.joinToString(separator = "\n", postfix = "\n"))
+        if (exploredCellsFile.exists()) exploredCellsFile.delete()
     }
 
     private fun collectTrackCells(track: TrackRecord): Set<String> {
@@ -870,7 +929,10 @@ class NativeTrackStore(private val context: Context) {
 
     private fun shouldMergeIntoLatest(previous: TrackRecord, current: TrackRecord): Boolean {
         if (!isMergeableAutoSource(previous.source) || !isMergeableAutoSource(current.source)) return false
-        if (current.timestamp - previous.timestamp > MAX_MERGE_GAP_MS) return false
+        // Bound the work when extending a live track; older segments remain untouched.
+        if (previous.encodedPath.length >= 2048) return false
+        if (current.timestamp - previous.timestamp !in 0..MAX_MERGE_GAP_MS) return false
+        if (!LocationSamplePolicy.sameUtcDay(previous.timestamp, current.timestamp)) return false
         if (previous.brushRadiusKm != current.brushRadiusKm) return false
         val previousLast = extractLastPoint(previous) ?: return false
         val currentFirst = runCatching { PolylineCodec.decode(current.encodedPath).firstOrNull() }.getOrNull() ?: return false
@@ -1002,6 +1064,9 @@ class NativeTrackStore(private val context: Context) {
         return JSONObject().apply {
             put("version", "2.0.0")
             put("metadata", JSONObject().apply {
+                val sync = dao.getSyncState()
+                put("nativeEpoch", sync.epoch)
+                put("nativeRevision", sync.revision)
                 put("totalAreaKm2", 0.0)
                 put("createdAt", prefs.getLong(KEY_CREATED_AT, System.currentTimeMillis()).also {
                     prefs.edit().putLong(KEY_CREATED_AT, it).apply()
@@ -1044,7 +1109,9 @@ class NativeTrackStore(private val context: Context) {
         if (Thread.currentThread() === storeThreadRef.get()) {
             return block()
         }
-        return storeExecutor.submit<T> { block() }.get()
+        return storeExecutor.submit<T> {
+            database.runInTransaction(Callable<T> { block() })
+        }.get()
     }
 
     private fun readTracksFromFile(file: File): List<TrackRecord>? {
@@ -1068,6 +1135,13 @@ class NativeTrackStore(private val context: Context) {
     }
 
     companion object {
+        @Volatile private var instance: NativeTrackStore? = null
+
+        fun getInstance(context: Context): NativeTrackStore =
+            instance ?: synchronized(this) {
+                instance ?: NativeTrackStore(context.applicationContext).also { instance = it }
+            }
+
         private const val PREF_NAME = "fog_visitor_native_tracking"
         private const val KEY_IS_TRACKING = "is_tracking"
         private const val KEY_SHOULD_TRACK = "should_track"
@@ -1078,10 +1152,11 @@ class NativeTrackStore(private val context: Context) {
         private const val KEY_LAST_ACCURACY_BITS = "last_accuracy_bits"
         private const val KEY_CREATED_AT = "archive_created_at"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
+        private const val KEY_FORCE_NEW_SEGMENT = "force_new_segment"
         private const val MIN_MOVEMENT_FOR_TRACK_METERS = 10.0
         private const val MIN_PATH_LENGTH_FOR_TRACK_METERS = 15.0
         private const val CELL_SIZE_METERS = 20.0
-        private const val MAX_MERGE_GAP_MS = 3 * 60 * 1000L
+        private const val MAX_MERGE_GAP_MS = LocationSamplePolicy.MAX_GAP_MS
         private const val MAX_MERGE_DISTANCE_METERS = 35.0
         private const val MAX_STATUS_DRAFT_POINTS = 24
         private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
@@ -1091,7 +1166,7 @@ class NativeTrackStore(private val context: Context) {
         private const val MAX_TRACKING_DEBUG_EVENTS = 120
         private val DEBUG_LOG_LOCK = Any()
         private val trackingDebugEvents = ArrayDeque<JSONObject>()
-        private var trackingDebugSeq = 0L
+        private var trackingDebugSeq = System.currentTimeMillis()
 
         @Synchronized
         private fun nextTrackingDebugSeq(): Long {

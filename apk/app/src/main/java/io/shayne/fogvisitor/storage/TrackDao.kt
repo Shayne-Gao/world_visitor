@@ -15,14 +15,39 @@ interface TrackDao {
     @Query("SELECT * FROM track_segments WHERE timestamp > :afterTimestamp ORDER BY timestamp ASC")
     fun getTracksAfter(afterTimestamp: Long): List<TrackSegmentEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsertTrack(track: TrackSegmentEntity)
+    @Query("SELECT * FROM track_segments WHERE revision > :afterRevision ORDER BY revision ASC")
+    fun getTracksAfterRevision(afterRevision: Long): List<TrackSegmentEntity>
+
+    @Query("SELECT * FROM archive_sync WHERE id = 1")
+    fun getSyncState(): ArchiveSyncEntity
+
+    @Query("UPDATE archive_sync SET revision = revision + 1 WHERE id = 1")
+    fun advanceRevision()
+
+    @Query("UPDATE archive_sync SET reset_revision = revision WHERE id = 1")
+    fun markResetRevision()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsertTracks(tracks: List<TrackSegmentEntity>)
+    fun insertTrack(track: TrackSegmentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertTracks(tracks: List<TrackSegmentEntity>)
 
     @Query("DELETE FROM track_segments")
-    fun clearTracks()
+    fun deleteAllTracks()
+
+    @Transaction
+    fun upsertTrack(track: TrackSegmentEntity) {
+        advanceRevision()
+        insertTrack(track.copy(revision = getSyncState().revision))
+    }
+
+    @Transaction
+    fun clearTracks() {
+        advanceRevision()
+        markResetRevision()
+        deleteAllTracks()
+    }
 
     @Query("SELECT COUNT(*) FROM track_segments")
     fun getTrackCount(): Int
@@ -51,6 +76,7 @@ interface TrackDao {
     @Transaction
     fun replaceAllTracks(tracks: List<TrackSegmentEntity>) {
         clearTracks()
-        if (tracks.isNotEmpty()) upsertTracks(tracks)
+        val revision = getSyncState().revision
+        if (tracks.isNotEmpty()) insertTracks(tracks.map { it.copy(revision = revision) })
     }
 }
