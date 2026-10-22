@@ -206,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.110 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.111 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -1643,12 +1643,23 @@ button:active { transform: scale(0.92); }
             L.DomUtil.addClass(this._canvas, 'leaflet-zoom-animated');
             layerMap.getPanes().overlayPane.appendChild(this._canvas);
             layerMap.on('moveend zoomend resize', this._scheduleReset, this);
+            layerMap.on('zoom', this._onZoom, this);
             layerMap.on('zoomanim', this._animateZoom, this);
+            // #region debug-point D:zoom-observer
+            if (window.__fogZoomDebug) {
+                this._debugZoom = () => window.__fogZoomDebug('zoom', { zoom: layerMap.getZoom(), transform: this._canvas?.style.transform });
+                layerMap.on('zoom', this._debugZoom);
+            }
+            // #endregion
             this._reset();
         },
         onRemove: function(layerMap) {
             layerMap.off('moveend zoomend resize', this._scheduleReset, this);
+            layerMap.off('zoom', this._onZoom, this);
             layerMap.off('zoomanim', this._animateZoom, this);
+            // #region debug-point D:zoom-observer
+            if (this._debugZoom) layerMap.off('zoom', this._debugZoom);
+            // #endregion
             if (this._frame) cancelAnimationFrame(this._frame);
             if (this._canvas) L.DomUtil.remove(this._canvas);
             this._canvas = null;
@@ -1662,13 +1673,24 @@ button:active { transform: scale(0.92); }
             });
         },
         _animateZoom: function(event) {
+            // #region debug-point D:animation
+            if (window.__fogZoomDebug) window.__fogZoomDebug('zoomanim', { zoom: event.zoom, drawZoom: this._drawZoom });
+            // #endregion
             if (!this._drawTopLeft) return;
             const scale = this._map.getZoomScale(event.zoom, this._drawZoom);
             const offset = this._map._latLngToNewLayerPoint(this._drawTopLeft, event.zoom, event.center);
             L.DomUtil.setTransform(this._canvas, offset, scale);
         },
+        _onZoom: function() {
+            this._animateZoom({ zoom: this._map.getZoom(), center: this._map.getCenter() });
+        },
         _reset: function() {
+            // #region debug-point D:redraw
+            if (window.__fogZoomDebug) window.__fogZoomDebug('reset', { zoom: this._map?.getZoom() });
+            // #endregion
             if (!this._map || !this._canvas) return;
+            // Keep the original bitmap coordinate frame throughout a pinch/zoom animation.
+            if (this._map._animatingZoom || this._map.touchZoom?._zooming) return;
             const size = this._map.getSize();
             const padX = Math.round(size.x * 0.5);
             const padY = Math.round(size.y * 0.5);
@@ -2248,7 +2270,7 @@ button:active { transform: scale(0.92); }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.110',
+            appVersion: 'v0.1.111',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,

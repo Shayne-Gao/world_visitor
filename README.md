@@ -6,6 +6,14 @@
 
 项目基线文档见：`docs/PROJECT_BASELINE.md`
 
+## [apk-v0.1.111-alpha] - 2026-10-22
+### 连续缩放修复与原生追踪自查
+* **雾层同步缩放**：跟随 Leaflet 双指操作期间的连续 zoom 事件；手势期间保持位图坐标系，只更新变换，结束后重绘，保留平移缓存。
+* **修复小步漏记**：有效的 8–10 米采样不再因单段不足 10 米被反复丢弃；保留草稿起点累积位移，并限制原地抖动草稿数量。checkpoint 保留最近采样精度。
+* **原生回放**：在 Android API 28/35 的 Robolectric 环境执行真实 Service、定位过滤、草稿与 Room 写入，仅替换 GMS 输入；覆盖小步行走、批量与乱序过滤、断轨、停止旧回调、服务恢复、Activity 退后台/屏幕关闭状态及订阅失败重试。
+* **验证边界**：新增 APK 内嵌 Leaflet 手势回放及原生 Service/Room 集成测试。模拟定位用于验证业务链路，不代表已验证厂商后台休眠策略。
+* **独立发布**：新包位于 `apk/releases/v0.1.111-alpha/fog-visitor-v0.1.111-alpha.apk`，不覆盖 GitHub 上的 108 或 110 APK；`latest` 继续保留 108。
+
 ## [apk-v0.1.110-alpha] - 2026-10-20
 ### 记录一致性与增量绘图修复（独立测试版）
 * **旧包保留**：`apk/releases/latest/fog-visitor-debug-latest.apk` 继续保留线上 `v0.1.108-alpha`；新包单独发布到 `apk/releases/v0.1.110-alpha/fog-visitor-v0.1.110-alpha.apk`。

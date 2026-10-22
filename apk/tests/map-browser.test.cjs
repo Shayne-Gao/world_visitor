@@ -38,6 +38,7 @@ const assert = require('node:assert/strict');
             setAppData(data);
             map.setView([1.34, 103.81], 17, { animate: false });
             renderLayers();
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             const layer = fogLayer;
             function alphaAt(latlng) {
                 const p = map.latLngToLayerPoint(latlng).subtract(L.DomUtil.getPosition(layer._canvas));

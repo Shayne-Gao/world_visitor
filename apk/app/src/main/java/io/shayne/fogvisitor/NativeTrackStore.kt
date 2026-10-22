@@ -102,24 +102,29 @@ class NativeTrackStore private constructor(private val context: Context) {
             )
             if (points.size < minPointCount) return@runStore null
             if (shouldDiscardCheckpoint(points)) {
-                val seed = points.lastOrNull()?.let { listOf(it) } ?: emptyList()
-                val lastPoint = seed.lastOrNull()
+                // Keep the anchor so accepted 8-10m steps can accumulate into a track.
+                // Bound stationary jitter without advancing that anchor on every point.
+                val pending = if (points.size > MAX_STATUS_DRAFT_POINTS) {
+                    listOf(points.first()) + points.takeLast(MAX_STATUS_DRAFT_POINTS - 1)
+                } else points
+                val lastPoint = pending.lastOrNull()
                 appendTrackingDebugEvent(
-                    "native_checkpoint_discarded",
+                    "native_checkpoint_deferred",
                     mapOf(
                         "source" to source,
                         "draftPointCount" to points.size.toString(),
-                        "seedCount" to seed.size.toString()
+                        "retainedCount" to pending.size.toString()
                     )
                 )
-                writeDraftPoints(seed)
+                if (pending.size != points.size) writeDraftPoints(pending)
                 updateStatus(
                     isTracking = true,
                     shouldTrack = true,
-                    draftPointCount = seed.size,
+                    draftPointCount = pending.size,
                     lastPointAt = currentLivePointAt(),
                     lastLng = lastPoint?.getOrNull(0),
-                    lastLat = lastPoint?.getOrNull(1)
+                    lastLat = lastPoint?.getOrNull(1),
+                    lastAccuracy = currentLiveAccuracy()
                 )
                 return@runStore null
             }
@@ -153,7 +158,8 @@ class NativeTrackStore private constructor(private val context: Context) {
                 draftPointCount = seed.size,
                 lastPointAt = currentLivePointAt(),
                 lastLng = lastPoint?.getOrNull(0),
-                lastLat = lastPoint?.getOrNull(1)
+                lastLat = lastPoint?.getOrNull(1),
+                lastAccuracy = currentLiveAccuracy()
             )
             persistResult.track
         }

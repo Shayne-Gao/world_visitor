@@ -10,6 +10,16 @@
 - `storage-sql.test.cjs` 使用本机 `/usr/bin/sqlite3` 验证源码中的迁移和查询 SQL，不等价于 Android Room 仪器测试；原生 JVM 测试另覆盖 revision 重置规则及 UTC 日期边界。
 - 常驻 Worker 回归覆盖同 ID 延长、跨日迁移、路径替换、旧 token 拒绝和失败后缓存保持；同步回归覆盖未来业务时间、同数量更新、重置和过期结果。
 - `map-browser.test.cjs` 只检查 APK 内嵌资源的文件 URL 加载、Worker、雾层像素和投影复用，不作为 Android 流畅度或后台保活的验收结果。
+- `TrackingFlowTest` 使用 Robolectric API 28/35 和真实 Room 数据库执行 9 个场景（共 18 次），仅 mock GMS 定位客户端。执行：`./gradlew :app:testDebugUnitTest --tests io.shayne.fogvisitor.TrackingFlowTest`。测试存档位于隔离测试环境，不写入用户手机。
+- 原生回放覆盖 9 米连续小步累积、原地抖动有界草稿、批量排序/重复/精度/速度过滤、2 分钟/1km 断轨、暂停 UI、Activity 退后台后屏幕关闭、停止旧回调、服务重建和 watchdog 订阅失败重试。屏幕状态由 shadow 设置，回调由测试注入，不能据此证明系统在 Doze 下仍交付回调。
+- `zoom-browser.test.cjs` 驱动 APK 自带 Leaflet 的双指处理器，逐帧断言放大/缩小、锚点和位图复用。设置 `PLAYWRIGHT_PATH` 指向已有 `playwright-core` 后执行 `node apk/tests/zoom-browser.test.cjs`；它不测 Android WebView 性能。
+- 本轮调试的可选日志环境变量：`FOG_DEBUG_URL=http://127.0.0.1:7777/event`、`DEBUG_RUN_ID=pre-fix` 或 `post-fix`。未设置日志地址时，测试不依赖调试服务器。
+
+## 111 自查结果
+
+修复前，13 个每隔 10 秒、相距 9 米的有效点全部被服务接受，但存储反复丢弃短段，累计 108 米仍为 0 条轨迹。修复后保留全部起终点并保存轨迹，原地小范围抖动仍不保存为轨迹。双指缩放修复前地图比例为 1.3/1.7/2.2 时雾层始终为 1；修复后逐帧变换与地图一致。
+
+这些自动回放可以承担后续业务回归，不需要每次让使用者外出。以下真机场景用于系统调度和厂商限制验收，不能由 JVM 回放替代。
 
 ## 必须使用 Android 真机的检查
 
