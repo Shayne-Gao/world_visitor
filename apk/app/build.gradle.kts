@@ -12,8 +12,8 @@ android {
         applicationId = "io.shayne.fogvisitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 42
-        versionName = "0.1.111-alpha"
+        versionCode = 43
+        versionName = "0.1.112-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -206,7 +206,7 @@ button:active { transform: scale(0.92); }
 <body>
 
 <div id="map"></div>
-    <div id="versionTag" title="点击复制诊断信息">v0.1.111 (Schema v2.0)</div>
+    <div id="versionTag" title="点击复制诊断信息">v0.1.112 (Schema v2.0)</div>
 <div id="blockingOverlay">
     <div class="overlay-card">
         <div class="overlay-title">正在处理，请稍候...</div>
@@ -714,9 +714,21 @@ button:active { transform: scale(0.92); }
     const geometryJobs = new Map();
     function runGeometryJob(job, onProgress = null) {
         if (!geometryWorker) {
-            const scripts = ['vendor/turf/turf.min.js', 'geometry-worker.js']
-                .map(path => JSON.stringify(new URL(path, document.baseURI).href));
-            const url = URL.createObjectURL(new Blob([`importScripts(${scripts.join(',')});`], { type: 'text/javascript' }));
+            // #region debug-point C:worker-bootstrap
+            reportDebugEvent('web_geometry_worker_start', { protocol: location.protocol, native: String(!!window.AndroidBridge) });
+            // #endregion
+            let source;
+            if (window.AndroidBridge) {
+                source = AndroidBridge.getGeometryWorkerSource();
+                if (typeof source !== 'string' || !source.trim()) {
+                    throw new Error('APK geometry worker source is unavailable');
+                }
+            } else {
+                const scripts = ['vendor/turf/turf.min.js', 'geometry-worker.js']
+                    .map(path => JSON.stringify(new URL(path, document.baseURI).href));
+                source = `importScripts(${scripts.join(',')});`;
+            }
+            const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
             try {
                 geometryWorker = new Worker(url);
             } finally {
@@ -1264,6 +1276,9 @@ button:active { transform: scale(0.92); }
         updateTrackingDebugPanelMode();
     });
     async function reportDebugEvent(event, payload = {}) {
+        // #region debug-point A-C:p0-persistence
+        if (window.__fogP0Debug) window.__fogP0Debug(event, payload);
+        // #endregion
         try {
             const entry = {
                 event,
@@ -1980,7 +1995,61 @@ button:active { transform: scale(0.92); }
     });
 
     // 【核心新增：将Turf解雾逻辑抽离，供手动和自动共享】
+    async function persistNativeMark(coordsArray, trackSource) {
+        if (!coordsArray?.length) return false;
+        const overlayToken = showBlockingOverlay('正在保存标记...');
+        let persisted = false;
+        const targetData = appData;
+        const revision = window.__fogArchiveRevision = (window.__fogArchiveRevision || 0) + 1;
+        try {
+            const track = {
+                id: 'trk_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+                timestamp: Date.now(),
+                source: trackSource,
+                brushRadiusKm: getTrackBrushRadius(trackSource),
+                encodedPath: PolylineUtil.encode(coordsArray),
+                bbox: getBbox(coordsArray)
+            };
+            appendBlockingOverlayLine('写入原生存档', true, overlayToken);
+            const result = parseNativeBridgeResult(AndroidBridge.appendNativeTrackJson(JSON.stringify(track)), 'appendNativeTrackJson');
+            if (result?.ok !== true || result.persisted !== true) {
+                throw new Error('原生存档未确认写入成功');
+            }
+            persisted = true;
+            historyStack.push(JSON.stringify(targetData));
+            if (historyStack.length > 30) historyStack.shift();
+            upsertTrackIntoSourceOfTruth(track);
+            reportDebugEvent('web_native_mark_committed', { trackId: track.id, source: trackSource });
+            appendBlockingOverlayLine('标记已保存，更新地图显示', true, overlayToken);
+            // Native truth is committed before any fallible geometry calculation.
+            const archive = JSON.parse(AndroidBridge.exportNativeArchiveJson());
+            const normalized = await rebuildRenderCacheProgressively(archive);
+            if (appData !== targetData || revision !== window.__fogArchiveRevision) {
+                window.__fogPendingNativeHydration = true;
+                return true;
+            }
+            setAppData(normalized);
+            updateStatsUI();
+            buildTimeline();
+            renderLayers();
+            await persistAppDataToLocalCache(normalized);
+            reportDebugEvent('web_native_mark_rendered', { trackId: track.id });
+            return true;
+        } catch (error) {
+            geometryOwner = null;
+            if (persisted) window.__fogPendingNativeHydration = true;
+            reportDebugEvent('web_native_mark_failed', { persisted: String(persisted), error: String(error) });
+            alert(persisted
+                ? '标记已保存到原生存档，但地图显示更新失败。重新打开后会重试显示，请勿清空数据。'
+                : '标记保存失败，未写入存档。请保留当前标记并重试。\n' + String(error));
+            return persisted;
+        } finally {
+            clearBlockingOverlay(overlayToken);
+        }
+    }
+
     async function processTrackAndSave(coordsArray, trackSource = 'web_draw') {
+        if (isNativeTruthMode()) return persistNativeMark(coordsArray, trackSource);
         //#region debug-point apk-ui-storage-regression-process-track-start
         const processTrackStartedAt = performance.now();
         reportDebugEvent('web_process_track_start', {
@@ -2267,15 +2336,31 @@ button:active { transform: scale(0.92); }
         const snapshot = await DataManager.loadSnapshot();
         const draft = await localforage.getItem(DRAFT_KEY).catch(() => null);
         const diagnostic = await DataManager.readDiagnostic();
+        const native = {};
+        if (window.AndroidBridge) {
+            for (const [key, method] of [['archive', 'getNativeArchiveSummary'], ['tracking', 'getNativeTrackingStatus']]) {
+                try { native[key] = JSON.parse(AndroidBridge[method]()); }
+                catch (error) { native[key] = { error: String(error) }; }
+            }
+        }
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            appVersion: 'v0.1.111',
+            appVersion: 'v0.1.112',
             origin: location.origin,
             href: location.href,
             userAgent: navigator.userAgent,
             language: navigator.language,
             platform: navigator.platform || null,
+            native,
+            pageSync: {
+                trackCount: appData?.sourceOfTruth?.tracks?.length || 0,
+                epoch: appData?.metadata?.nativeEpoch || null,
+                revision: appData?.metadata?.nativeRevision ?? null,
+                hydrationInFlight: !!window.__fogHydrationInFlight,
+                pendingHydration: !!window.__fogPendingNativeHydration,
+                workerActive: !!geometryWorker
+            },
             storage: {
                 storageKey: STORAGE_KEY,
                 snapshotKey: SNAPSHOT_KEY,

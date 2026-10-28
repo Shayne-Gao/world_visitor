@@ -32,6 +32,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.net.ServerSocket
+import java.net.InetAddress
+import java.io.File
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk = [28, 35])
@@ -132,6 +135,113 @@ class TrackingFlowTest {
         val coords = PolylineCodec.decode(store.readArchiveTracks().last().encodedPath)
         assertEquals(4, coords.size)
         assertEquals(point(60.0, 30).longitude, coords.last()[0], 0.00001)
+    }
+
+    @Test fun pageBridgeRecordingSurvivesReopening() {
+        fun command(action: String) {
+            val done = CountDownLatch(1)
+            val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    service.onStartCommand(Intent().setAction(action), 0, 100)
+                } catch (error: Throwable) { failure.set(error) }
+                finally { done.countDown() }
+            }
+            check(done.await(10, TimeUnit.SECONDS)) { "Main looper did not process tracking action" }
+            failure.get()?.let { throw it }
+        }
+        val bridge = JsBridge(RuntimeEnvironment.getApplication(),
+            { command(TrackingForegroundService.ACTION_START) },
+            { command(TrackingForegroundService.ACTION_STOP) },
+            { command(TrackingForegroundService.ACTION_STOP) }, {}, {}, {})
+        val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        val serverThread = Thread {
+          while (!server.isClosed) {
+            val socket = try { server.accept() } catch (_: java.net.SocketException) { break }
+            socket.use {
+              val input = socket.getInputStream().buffered()
+              fun line(): String {
+                  val text = StringBuilder()
+                  while (true) {
+                      val b = input.read()
+                      if (b == -1 || b == 10) return text.toString().trimEnd('\r')
+                      text.append(b.toChar())
+                  }
+              }
+              val request = line().split(" ")
+              var length = 0
+              while (true) {
+                  val header = line()
+                  if (header.isEmpty()) break
+                  if (header.startsWith("Content-Length:", true)) length = header.substringAfter(':').trim().toInt()
+              }
+              val body = input.readNBytes(length).toString(Charsets.UTF_8)
+              var status = 200
+              val response = try {
+                val args = org.json.JSONArray(body.ifEmpty { "[]" })
+                val name = request[1].removePrefix("/")
+                val result = when (name) {
+                    "openActivity" -> {
+                        command(TrackingForegroundService.ACTION_START)
+                        bridge.getNativeArchiveSummary()
+                    }
+                    "deliver" -> {
+                        val base = args.getDouble(0)
+                        val at = args.getLong(1)
+                        deliver(point(base, at), point(base + 20, at + 10), point(base + 40, at + 20))
+                        bridge.getNativeArchiveSummary()
+                    }
+                    else -> {
+                        val method = JsBridge::class.java.methods.single { it.name == name && it.parameterCount == args.length() }
+                        val values = method.parameterTypes.mapIndexed { i, type ->
+                            when (type) {
+                                java.lang.Long.TYPE -> args.getLong(i)
+                                java.lang.Double.TYPE -> args.getDouble(i)
+                                java.lang.Boolean.TYPE -> args.getBoolean(i)
+                                else -> args.getString(i)
+                            }
+                        }.toTypedArray()
+                        method.invoke(bridge, *values)?.toString() ?: ""
+                    }
+                }
+                result
+              } catch (error: Throwable) {
+                status = 500
+                error.printStackTrace()
+                (error.cause ?: error).toString()
+              }
+              val bytes = response.toByteArray()
+              socket.getOutputStream().use { output ->
+                  output.write("HTTP/1.1 $status OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                  output.write(bytes)
+              }
+            }
+          }
+        }
+        serverThread.isDaemon = true
+        serverThread.start()
+        try {
+            val apkRoot = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+                .first { File(it, "tests/p0-app-flow.cjs").exists() }
+            val process = ProcessBuilder("node", File(apkRoot, "tests/p0-app-flow.cjs").absolutePath)
+                .directory(apkRoot.parentFile)
+                .inheritIO()
+                .apply { environment()["P0_BRIDGE_URL"] = "http://127.0.0.1:${server.localPort}" }
+                .start()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(180)
+            while (process.isAlive && System.nanoTime() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                process.waitFor(50, TimeUnit.MILLISECONDS)
+            }
+            if (process.isAlive) {
+                process.destroyForcibly()
+                fail("P0 page flow exceeded 180 seconds")
+            }
+            assertEquals("P0 page, native bridge, Room and cold-page restart must pass", 0, process.exitValue())
+        } finally {
+            server.close()
+            serverThread.join(5000)
+        }
     }
 
     @Test fun accumulatesNineMeterWalkingSteps() {

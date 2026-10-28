@@ -1,0 +1,11 @@
+{
+  "name": "fog-visitor-apk-regression",
+  "private": true,
+  "scripts": {
+    "test": "node --test apk/tests/geometry-worker.test.cjs apk/tests/native-sync.test.cjs apk/tests/canvas-cache.test.cjs apk/tests/storage-sql.test.cjs",
+    "test:p0": "bash apk/tests/run-p0.sh"
+  },
+  "devDependencies": {
+    "playwright-core": "1.58.2"
+  }
+}

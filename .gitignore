@@ -8,3 +8,6 @@ apk/local.properties
 
 # macOS
 .DS_Store
+
+# APK regression tooling
+node_modules/

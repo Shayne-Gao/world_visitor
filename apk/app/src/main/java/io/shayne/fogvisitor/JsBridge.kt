@@ -67,6 +67,16 @@ class JsBridge(
     fun getAppFlavor(): String = "android-apk-shell"
 
     @JavascriptInterface
+    fun getGeometryWorkerSource(): String {
+        // Blob workers cannot reliably import file:///android_asset scripts in WebView.
+        // Only these packaged assets are exposed, never a caller-supplied file path.
+        return listOf("web/vendor/turf/turf.min.js", "web/geometry-worker.js")
+            .joinToString("\n;\n") { path ->
+                context.assets.open(path).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }
+    }
+
+    @JavascriptInterface
     fun getNativeTrackingStatus(): String {
         val status = JSONObject(trackStore.getStatusJson())
         val backgroundRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
